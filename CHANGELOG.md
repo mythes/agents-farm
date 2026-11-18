@@ -4,6 +4,10 @@ All notable changes are listed here. The format follows [Keep a Changelog](https
 
 ## [Unreleased]
 
+## [0.4.1] - 2026-11-18
+
+Install with Homebrew, and clearer hints for leaving a session.
+
 ### Changed
 - The `n` dialog always shows how to leave a session, whatever `Ctrl+B` is set to: `Ctrl+Z` for a background session (it keeps running), `/exit` for a normal one (it ends). `Ctrl+Z` does nothing in a normal session. The README says it too.
 
@@ -81,7 +85,8 @@ First release. A terminal dashboard for Claude Code agents.
 - Usage limits are an estimate. Real plan limits (5-hour and weekly) are planned: [#11](https://github.com/mythes/agents-farm/issues/11).
 - There is no PID column, kill, start or resume yet. See the [backlog](docs/backlog.md).
 
-[Unreleased]: https://github.com/mythes/agents-farm/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/mythes/agents-farm/compare/v0.4.1...HEAD
+[0.4.1]: https://github.com/mythes/agents-farm/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/mythes/agents-farm/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/mythes/agents-farm/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/mythes/agents-farm/compare/v0.1.0...v0.2.0
