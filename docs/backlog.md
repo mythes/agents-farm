@@ -34,6 +34,20 @@ Checked on a real machine with Claude Code 2.1.319 / 2.1.325. These facts change
    - Limits are shared by the whole account, so a number from a CLI session is also true for Desktop sessions. But it is fresh only while some CLI session is active.
    - We found no other source for Desktop: the common fields of hook payloads have no limits (per-event fields were only partly read), and nothing is cached on disk (only feature flags).
 10. **Context window sizes can be learned from CLI sessions.** The CLI statusLine reported `context_window_size = 1,000,000` for `claude-haiku-5-5` too, so the default of 200k for haiku-5 is probably wrong. Handle it in T7a.
+11. **S2 result (2026-11-18): the pid file does write `waiting`, and it is as fast as the hooks.**
+    - Values seen: `idle`, `busy`, `waiting`. A CLI session has no `status` for a moment at start, then `idle`.
+    - Test: a Desktop chat asked a question with `AskUserQuestion` and waited. The pid file changed `busy` → `waiting` at 10:42:55.148 and back to `busy` at 10:43:16.349, when the user answered, then `idle` at 10:43:19.555.
+    - Compared with the hooks of the same session: `PermissionRequest` came 57 ms **after** `waiting`, `Notification` (permission_prompt) came **6 s after** it, `PostToolUse` 121 ms after `busy`, `Stop` 20 ms before `idle`.
+    - So the pid file gives the status `waiting` with no hooks and sooner than the `Notification` hook. Not tested: a normal tool permission prompt (for example Bash). The `PermissionRequest` hook fired in the same way, so it is probably the same.
+    - The binary of Claude Code also lists the states `starting, running, resuming, adopted, crashed, working, blocked, done, stopped, failed, shell`. We never saw them in session files.
+    - The pid file of a finished session is removed.
+12. **S3 result (2026-11-18): suspend and resume of the terminal works** in the terminal panel of the Claude app. A probe TUI (mouse, timer, colours) was suspended with `App.suspend()`, ran `less` and a real interactive `claude`, and came back with mouse, timer, colours, cursor and keys all fine. Not tested yet: iTerm2 and Terminal.app on their own.
+13. **S4 result (2026-11-18): killing the process of a Desktop session is safe when the session is idle, and Desktop restarts it by itself.**
+    - We sent `SIGTERM` to the `claude` process of an idle Desktop chat. Its pid file was removed in 0.1 s, the process ended in about 1 s, and its parent wrapper `disclaimer` ended with it. The `SessionEnd` hook ran. The Desktop app and other sessions were not affected.
+    - The chat showed nothing unusual. Its transcript stayed whole.
+    - When the user sent the next message, Desktop started a **new process with a new pid** for the **same session id**. The same transcript file continued, and `SessionStart` ran again before the message.
+    - So a pid is not stable for a Desktop session: always join by session id (T0 does).
+    - Not tested: killing a session that is `busy` or `waiting`. The current turn would be lost.
 
 ---
 
@@ -42,7 +56,7 @@ Checked on a real machine with Claude Code 2.1.319 / 2.1.325. These facts change
 | M | Content | Tasks | Size |
 |---|---|---|---|
 | **M0** | Spikes: remove 4 unknowns before we build | S1–S4 | S |
-| **M1** | Session registry, PID, fuzzy search, kill | T0, T1, T5, T2 | M+S+S+M |
+| **M1** | Session registry, PID, fuzzy search, live status, kill | T0, T1, T5, T8, T2 | M+S+S+S+M |
 | **M2** | Start and resume sessions | T3, T4 | M+M |
 | **M3** | Real limits and percentages | T6, T7 | L+M |
 
@@ -53,9 +67,9 @@ Checked on a real machine with Claude Code 2.1.319 / 2.1.325. These facts change
 | ID | Question | How to check | What it decides |
 |---|---|---|---|
 | **S1** | Does statusLine run in Desktop sessions (`stream-json`)? | Add a temporary statusLine that writes stdin to a file. Open one Desktop session and one CLI session and see if files appear. **Needs your OK to edit `settings.json`** (with a backup) | T6, T7a. **Result: no for Desktop, yes for CLI (finding 9).** For Desktop we use the newest CLI value (with its age) or transcripts, and mark estimates with `≈` |
-| **S2** | Which values can `status` in `sessions/<pid>.json` have? (We saw only `idle` and `busy`.) Is there a `waiting` for a permission request? | Log changes of `status` / `statusUpdatedAt` for some hours and during a permission request | T0: can we replace hooks with the live status? |
-| **S3** | Does `App.suspend()` + `claude` return the terminal to the TUI in a clean state on macOS (iTerm2, Terminal.app)? | Run `claude` by hand, exit, and check the cursor, mouse mode and colours. The `o` key (pager) is also not tested by hand yet | T3, T4 |
-| **S4** | What happens in Desktop when we kill its `claude` process? | Kill a **throwaway** Desktop session (never a working one) | The warning text in T2 |
+| **S2** | Which values can `status` in `sessions/<pid>.json` have? (We saw only `idle` and `busy`.) Is there a `waiting` for a permission request? | Log changes of `status` / `statusUpdatedAt` for some hours and during a permission request | T0: can we replace hooks with the live status? **Result: done. `waiting` exists and comes before the hooks (finding 11).** |
+| **S3** | Does `App.suspend()` + `claude` return the terminal to the TUI in a clean state on macOS (iTerm2, Terminal.app)? | Run `claude` by hand, exit, and check the cursor, mouse mode and colours. The `o` key (pager) is also not tested by hand yet | T3, T4 **Result: works in the Claude app terminal (finding 12). iTerm2 and Terminal.app not tested.** |
+| **S4** | What happens in Desktop when we kill its `claude` process? | Kill a **throwaway** Desktop session (never a working one) | The warning text in T2 **Result: done. Safe when idle, Desktop restarts the process on the next message (finding 13).** |
 
 ---
 
@@ -72,7 +86,7 @@ Checked on a real machine with Claude Code 2.1.319 / 2.1.325. These facts change
 - Alive check: `os.kill(pid, 0)` + `startedAt` equals the process start time (`ps -o etime=`). `psutil` is not needed. If the code gets messy, we can add it.
 - `Agent` gets `pid`, `entrypoint`, `live_status`. We join by `sessionId` (subagents have no PID).
 - Ignore files of dead processes (do not delete them).
-- After S2: use `status` as a `busy` / `idle` signal next to the hooks.
+- The `status` field is used as the live status: see T8 (S2 confirmed that it has `waiting`).
 
 **Done when**
 - `status --json` shows `pid` and `entrypoint` for each of the 4 live sessions.
@@ -80,6 +94,25 @@ Checked on a real machine with Claude Code 2.1.319 / 2.1.325. These facts change
 - A test with a fake folder and a fake process.
 
 **Risks:** the format is not documented and can change. So we validate every field strictly, and a missing file never breaks the app.
+
+### T8 · Live status from the pid files (no hooks needed) · S
+
+**Possible:** ✅ (S2 confirmed it). Needs T0.
+
+**Why.** The pid file has `idle`, `busy` and `waiting`, updated within about 60 ms of the hooks. `waiting` appears 6 s before the `Notification` hook. So the exact "waits for you" status works for every user, even without hooks.
+
+**Plan**
+- `waiting` → `Status.WAITING` (the note comes from the hook `Notification` text when hooks are installed, else "waiting for your answer").
+- `busy` → running or thinking (keep the transcript to tell them apart). `idle` → done, or idle when the session is old.
+- A live pid-file status wins over the guess from the transcript. If there is no pid file, keep today's logic.
+- Hooks stay as an extra: message text and the `Stop` / `SessionEnd` events. When both agree, nothing changes.
+- Ignore states we never saw (`blocked`, `crashed`…) but show them in the details as text.
+- Tell the user in the top bar when the status comes from the pid file (`live ✓`) instead of hooks.
+
+**Done when**
+- [ ] an agent that waits for you shows `?` without hooks installed
+- [ ] the status changes back to running right after the answer
+- [ ] tests for each value and for a missing or broken file
 
 ### T1 · PID column · S
 
@@ -104,7 +137,7 @@ Checked on a real machine with Claude Code 2.1.319 / 2.1.325. These facts change
 
 ### T2 · Kill hotkey with confirmation · M
 
-**Possible:** ✅ simple in code. ⚠️ For Desktop sessions we do not know what happens after a kill (S4).
+**Possible:** ✅ simple in code. S4 showed that killing an **idle** Desktop session is safe: the history stays and Desktop starts a new process on the next message. A **busy** session loses its current turn.
 
 **Plan**
 - `x` on a live session opens a dialog: `Kill "<name>" (pid 96635, Desktop)? [y/N]`. The default is **N**. `esc` cancels.
@@ -113,10 +146,10 @@ Checked on a real machine with Claude Code 2.1.319 / 2.1.325. These facts change
   1. Before the signal, read the pid file again and compare `startedAt` (protects against PID reuse).
   2. Never kill `pid ≤ 1`, other users' processes, our own process, or any parent of the TUI (so we never kill the session that started `agents-farm`).
   3. Kill only the `claude` process from the pid file, **not** its parent (`disclaimer` / Desktop).
-  4. For `entrypoint=claude-desktop`, show an extra line: "Desktop owns this process; the session may look failed in Desktop" (final text after S4).
+  4. For `entrypoint=claude-desktop`, show an extra line: "Desktop will start a new process for this chat when you send the next message. The history is kept." If the status is `busy` or `waiting`, add a stronger warning: "The current turn will be lost."
   5. Write each action to `~/.agents-farm/actions.log` (time, pid, name, signal), mode 0600.
 - For dead sessions and subagents the key is off, with a short reason.
-- Optional: a separate key `i` to interrupt the current turn (SIGINT), only if S4 shows it is safe.
+- Optional: a separate key `i` to interrupt the current turn (SIGINT). S4 did not test SIGINT, so check it in its own spike before we offer it.
 
 **Done when:** a test with a spawned `sleep` process and a fake pid file (kill works; wrong `startedAt` → refused; parent → refused), and no signal is sent without confirmation.
 **Risks:** killing a working session by mistake. The default answer is "N", and the dialog shows the name and age.
@@ -127,7 +160,7 @@ Checked on a real machine with Claude Code 2.1.319 / 2.1.325. These facts change
 
 ### T3 · New session hotkey (CLI claude) · M
 
-**Possible:** ✅ the same way as `o` (pager): `App.suspend()` + `subprocess`. ⚠️ needs S3.
+**Possible:** ✅ the same way as `o` (pager): `App.suspend()` + `subprocess`. S3 passed in the Claude app terminal; check iTerm2 and Terminal.app by hand.
 
 **Plan**
 - `n` opens a dialog: directory (default: the `cwd` of the selected session, plus recent projects from `~/.claude/projects` with fuzzy pick, T5), model (`--model`, default from the config), permission mode (`--permission-mode`), a checkbox for `-w` (worktree).
@@ -147,7 +180,7 @@ Checked on a real machine with Claude Code 2.1.319 / 2.1.325. These facts change
 - `r` (and `enter` on a not-live session) runs `runner.run_interactive(cwd, ["--resume", session_id])`.
 - **Alive check (T0):**
   - process dead → resume at once;
-  - process alive (especially Desktop) → dialog: "This session is already running (pid N). Open a **fork** (`--fork-session`, a new history from a copy) / cancel". We do not offer to open the same session twice: both processes would write to one transcript.
+  - process alive (especially Desktop) → dialog (S4: a Desktop chat that is not running is restarted by Desktop on the next message, so a manual resume could race with it and create two writers; prefer the fork): "This session is already running (pid N). Open a **fork** (`--fork-session`, a new history from a copy) / cancel". We do not offer to open the same session twice: both processes would write to one transcript.
 - Subagent transcripts cannot be resumed (the key is off).
 - `c` runs `--continue` for the newest session in the directory.
 - Check that `cwd` exists. If the folder is gone, show an error with the path.
@@ -208,6 +241,6 @@ Checked on a real machine with Claude Code 2.1.319 / 2.1.325. These facts change
 
 ## Order of work
 
-`S1–S4` → `T0` → `T1` + `T5` → `T2` → `T3` → `T4` → `T6` → `T7a` → `T7b`
+`S1–S4` → `T0` → `T1` + `T5` → `T8` → `T2` → `T3` → `T4` → `T6` → `T7a` → `T7b`
 
 The biggest unknown is **S1** (does statusLine run in Desktop sessions?). It decides how exact the limits will be for the main use case. So check it before T6, and best of all first.
