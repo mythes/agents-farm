@@ -4,8 +4,12 @@ All notable changes are listed here. The format follows [Keep a Changelog](https
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-11-18
+
+Background sessions: start them, attach to them and come back, all from the dashboard.
+
 ### Added
-- Background sessions, with Claude Code's own commands. In the `n` dialog `Ctrl+B` starts the session with `claude --bg`, and `af` stays on screen. `a` opens a background session in this terminal (`claude attach`): you can type to it while it works, and **`Ctrl+Z` brings you back** to agents-farm while the session keeps running. `x` on a background session runs `claude stop`. The details show `background`. Sessions that are not in the background stay view-only. A hint is shown before attach, and a warning when a background session uses the `default` permission mode (it stops at its first permission request). The `n` dialog has an optional first prompt (`Ctrl+F` switches to it), for normal and background sessions. A running session with no transcript yet (a new background session waits for its first prompt) is now listed too, built from its pid file.
+- Background sessions, with Claude Code's own commands. In the `n` dialog `Ctrl+B` starts the session with `claude --bg`, and `af` stays on screen. `a` opens a background session in this terminal (`claude attach`): you can type to it while it works, and **`Ctrl+Z` brings you back** to agents-farm while the session keeps running. `x` on a background session runs `claude stop`. The details show `background`. Sessions that are not in the background stay view-only. A hint is shown before attach, and a warning when a background session uses the `default` permission mode (it stops at its first permission request). The `n` dialog has an optional first prompt (`Ctrl+F` switches to it), for normal and background sessions. The footer now shows `Attach` and `Stop` after `New session`, and the README demo shows the new features. A running session with no transcript yet (a new background session waits for its first prompt) is now listed too, built from its pid file.
 
 ## [0.3.0] - 2026-11-18
 
@@ -71,7 +75,8 @@ First release. A terminal dashboard for Claude Code agents.
 - Usage limits are an estimate. Real plan limits (5-hour and weekly) are planned: [#11](https://github.com/mythes/agents-farm/issues/11).
 - There is no PID column, kill, start or resume yet. See the [backlog](docs/backlog.md).
 
-[Unreleased]: https://github.com/mythes/agents-farm/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/mythes/agents-farm/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/mythes/agents-farm/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/mythes/agents-farm/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/mythes/agents-farm/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/mythes/agents-farm/releases/tag/v0.1.0
