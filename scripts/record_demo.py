@@ -37,10 +37,30 @@ STEPS = (
     + [(2.5, b"z")]                     # zoom: details on the full screen
     + [(2.5, ESC)]                      # back to the list
     + [(1.0, b"/")] + typed("apirf") + [(2.4, ESC)]   # fuzzy search, then clear it
+    + [(1.2, b"n")] + typed("apirf") + [(1.8, b"\t")]   # new session: fuzzy folder, Tab opens it
+    + [(1.8, b"\x01")] + typed("son") + [(1.4, ENTER)]  # Ctrl+A: pick a model
+    + [(1.0, b"\x13"), (1.0, b"\x04")]                  # Ctrl+S mode, Ctrl+D worktree
+    + [(2.2, ESC)]                      # cancel: the demo never starts claude
     + [(1.0, b"h")]                     # show idle sessions
     + [(1.8, b"?")] + [(3.0, ESC)]      # help screen
     + [(0.8, b"q")]
 )
+
+
+def make_fake_home(home):
+    """A made-up home folder, so the new-session dialog shows no real paths."""
+    projects = os.path.join(home, "projects")
+    for name in ("api-refactor", "docs-writer", "deploy-check", "lint-pass", "perf-audit"):
+        os.makedirs(os.path.join(projects, name), exist_ok=True)
+    for sub in ("src", "tests", "docs"):
+        os.makedirs(os.path.join(projects, "api-refactor", sub), exist_ok=True)
+    os.makedirs(os.path.join(projects, "api-refactor", ".git"), exist_ok=True)
+    with open(os.path.join(projects, "api-refactor", ".git", "HEAD"), "w") as fh:
+        fh.write("ref: refs/heads/feature/api-v2\n")
+    for name in ("README.md", "pyproject.toml"):
+        with open(os.path.join(projects, "api-refactor", name), "w") as fh:
+            fh.write("demo\n")
+    return projects
 
 
 def main():
@@ -48,14 +68,19 @@ def main():
     env = dict(os.environ, TERM="xterm-256color", COLORTERM="truecolor", LANG="en_US.UTF-8")
     env.pop("NO_COLOR", None)
     with tempfile.TemporaryDirectory() as home:
+        home = os.path.realpath(home)   # on macOS /var is a link to /private/var: the paths must match
         env["AGENTS_FARM_HOME"] = home  # never read the real user config
+        env["HOME"] = home              # ~ is the made-up home: no real path is drawn
+        projects = make_fake_home(home)
+        repo = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
+        env["PYTHONPATH"] = os.path.abspath(repo)
 
         master, slave = os.openpty()
         fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", ROWS, COLS, 0, 0))
         proc = subprocess.Popen(
             [sys.executable, "-m", "agents_farm", "--demo", "--interval", "6"],  # rare data refresh = fewer repaints
             stdin=slave, stdout=slave, stderr=slave, env=env, start_new_session=True,
-            cwd=os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."),
+            cwd=projects,               # the new-session dialog starts here: ~/projects
         )
         os.close(slave)
 
