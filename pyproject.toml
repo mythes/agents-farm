@@ -23,7 +23,7 @@ dependencies = ["textual>=0.80"]
 agents-farm = "agents_farm.cli:main"
 
 [project.optional-dependencies]
-dev = ["pytest", "bandit"]
+dev = ["pytest", "bandit", "pip-audit"]
 
 [tool.setuptools]
 packages = ["agents_farm"]

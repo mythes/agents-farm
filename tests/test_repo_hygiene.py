@@ -74,3 +74,20 @@ def test_every_skill_has_frontmatter():
         match = re.match(r"---\nname: (.+)\ndescription: (.+)\n(?:.*\n)*?---\n", text)
         assert match, f"{name}/SKILL.md needs a frontmatter with name and description"
         assert match.group(1).strip() == name, f"skill name must match its folder: {name}"
+
+
+def test_actions_are_pinned_to_a_commit():
+    """A tag can be moved by its owner. A full commit SHA cannot."""
+    workflows = os.path.join(ROOT, ".github", "workflows")
+    pinned = re.compile(r"@[0-9a-f]{40}(\s|$)")
+    for name in os.listdir(workflows):
+        for line in _read(os.path.join(workflows, name)).splitlines():
+            match = re.match(r"\s*-?\s*uses:\s*(\S+)", line)
+            if match and not match.group(1).startswith("./"):
+                assert pinned.search(line), f"{name}: {match.group(1)} is not pinned to a commit SHA"
+
+
+def test_workflows_declare_permissions():
+    workflows = os.path.join(ROOT, ".github", "workflows")
+    for name in os.listdir(workflows):
+        assert re.search(r"^permissions:", _read(os.path.join(workflows, name)), re.M), f"{name} needs a top-level permissions block"

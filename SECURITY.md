@@ -4,7 +4,7 @@ agents-farm is a **local, read-only** observer. It reads Claude Code transcripts
 
 ## Report a problem
 
-Please do not open a public issue for a security problem. Use GitHub's private reporting: **Security → Report a vulnerability** on the repository page.
+Please do not open a public issue for a security problem. Use GitHub's private reporting: **Security → Report a vulnerability** on the repository page. If you do not see that button, open an issue that asks for a private contact and gives no details.
 
 ## Trust model
 
@@ -28,10 +28,23 @@ Everything read from transcripts and hook payloads is **untrusted**. It can cont
 - Anyone who can already write to your home directory can send fake events. They can only change statuses. There is no way to run code.
 - Usage limits are estimates, not data from Anthropic.
 
-## Checks
+## Automated checks
+
+| Check | Where | What it finds |
+|---|---|---|
+| `pytest` (`tests/test_security.py`, `tests/test_repo_hygiene.py`) | CI, every push and pull request | Escape and markup injection, unsafe file access, personal data in files, unpinned actions |
+| `bandit -r agents_farm` | CI | Common insecure Python patterns |
+| `pip-audit .` | CI | Dependencies with known vulnerabilities |
+| gitleaks | CI | Secrets (tokens, keys) in the code and in the whole git history |
+| Dependabot | Weekly pull requests | Outdated Python dependencies and outdated GitHub Actions |
+| CodeQL (`security-extended` queries) | CI, public repository only | Deeper code analysis. Code scanning is free for public repositories. For a private one it needs GitHub Advanced Security, so the job is skipped |
+
+Workflows use least-privilege `permissions`, and every action is pinned to a full commit SHA (a test checks this). Dependabot keeps the SHAs up to date.
+
+Run the local checks yourself:
 
 ```bash
 pip install -e '.[dev]'
-pytest                    # includes tests/test_security.py
-bandit -r agents_farm     # static scan
+scripts/check.sh          # tests + bandit + whitespace
+pip-audit .               # needs network access
 ```

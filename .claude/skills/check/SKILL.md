@@ -13,6 +13,8 @@ scripts/check.sh
 
 It runs `pytest` (security, context, repo hygiene), `bandit -r agents_farm` and `git diff --check`.
 
+CI also runs `pip-audit .` (dependency vulnerabilities, needs network), gitleaks (secrets in the git history) and, once the repo is public, CodeQL. Run `pip-audit .` yourself when you change dependencies.
+
 ## If something fails
 
 | Failure | What to do |
@@ -22,6 +24,7 @@ It runs `pytest` (security, context, repo hygiene), `bandit -r agents_farm` and 
 | `personal data … in …` | Remove the user name, email or home path. Use placeholders such as `/Users/you` |
 | `docs/demo.gif is over its size budget` | Run the `update-demo` skill. Do not raise the budget without a reason |
 | `docs/demo.gif is missing` | Run `scripts/make_demo.sh` (needs `agg` and `gifsicle`) |
+| `… is not pinned to a commit SHA` | In `.github/workflows`, write `uses: owner/repo@<40-character SHA> # vX`. Find the SHA with `gh api repos/<owner>/<repo>/commits/<tag> --jq .sha` |
 | `pyproject has X but __init__ has Y` | Make both versions the same |
 | `…/SKILL.md needs a frontmatter` | Start the file with `---`, `name:` (same as the folder) and `description:` |
 | bandit finding | Fix it. Use `# nosec B###` only for a reviewed, justified case and say why in a nearby comment |

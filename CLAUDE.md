@@ -33,8 +33,9 @@ scripts/make_demo.sh                # rebuild docs/demo.cast and docs/demo.gif
 6. **No personal data.** Use placeholders (`/Users/you`). Commits use the GitHub noreply email set in the local git config. Do not change the identity.
 7. **Do not guess about Claude Code internals.** Files like `~/.claude/sessions/*.json` are not documented. Validate every field and fail softly.
 8. **Escapes can turn into real characters.** If you write `\u202e` or similar in a file, check that the file does not contain the literal character (bidi and Cyrillic characters break `test_repo_hygiene.py` and are unsafe in source). Build such values with `chr()`.
-9. Python 3.9 compatible (CI runs 3.9 and 3.12). Use `from __future__ import annotations`.
-10. Ask before you push, tag, publish, change repo visibility, or edit the user's `~/.claude/settings.json`.
+9. **Pin every GitHub Action to a full commit SHA** (with the tag in a comment). Keep workflow `permissions` as small as possible. A test checks the pins.
+10. Python 3.9 compatible (CI runs 3.9 and 3.12). Use `from __future__ import annotations`.
+11. Ask before you push, tag, publish, change repo visibility, or edit the user's `~/.claude/settings.json`.
 
 ## Skills in `.claude/skills/`
 

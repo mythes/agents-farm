@@ -1,0 +1,15 @@
+version: 2
+updates:
+  # Python dependencies from pyproject.toml
+  - package-ecosystem: pip
+    directory: "/"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+
+  # GitHub Actions: keeps the pinned commit SHAs in the workflows up to date
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
