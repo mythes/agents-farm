@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import re
 from collections import deque
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -10,7 +9,18 @@ from enum import Enum
 from typing import Deque, Dict, List, Optional
 
 
-_CONTROL_RE = re.compile("[\x00-\x08\x0b-\x1f\x7f-\x9f\u202a-\u202e\u2066-\u2069]")
+# Characters removed from untrusted text. Built from numeric ranges (not a regular
+# expression): it is easy to read, and str.translate() is fast on large logs.
+_STRIP = {
+    code: None
+    for code in (
+        *range(0x00, 0x09),    # C0 controls, but keep tab (0x09) and newline (0x0A)
+        *range(0x0B, 0x20),    # the rest of C0, including ESC (0x1B) and CR
+        *range(0x7F, 0xA0),    # DEL and the C1 controls
+        *range(0x202A, 0x202F),  # bidi embeddings and overrides
+        *range(0x2066, 0x206A),  # bidi isolates
+    )
+}
 
 
 def sanitize(value) -> str:
@@ -22,7 +32,7 @@ def sanitize(value) -> str:
     """
     if value is None:
         return ""
-    return _CONTROL_RE.sub("", str(value))
+    return str(value).translate(_STRIP)
 
 
 def utcnow() -> datetime:
