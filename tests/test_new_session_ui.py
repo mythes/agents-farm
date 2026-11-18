@@ -242,14 +242,15 @@ def test_enter_starts_claude_with_the_choices_and_selects_the_new_session(tmp_pa
     _transcript(projects, old_sid)
     work = tmp_path / "work"
     (work / "proj").mkdir(parents=True)
-    seen = []
+    seen, opened = [], []
 
-    def fake_run(cwd, args, claude, env=None):
+    def fake_start(cwd, args, claude, env=None):
         seen.append((cwd, args, claude, env.get("MY_VAR")))
-        _transcript(projects, new_sid)
-        return 0
+        _transcript(projects, new_sid)                 # the new session writes its transcript
+        return "bbbbbbbb"
 
-    monkeypatch.setattr(runner, "run_interactive", fake_run)
+    monkeypatch.setattr(runner, "start_background", fake_start)             # every session is started with `claude --bg` ...
+    monkeypatch.setattr(runner, "run_interactive", lambda cwd, args, claude, env=None, leave_on_stop=False: opened.append((cwd, args, leave_on_stop)) or 0)  # ... and a normal one is then attached
     claude = fake_claude(tmp_path)
     store = Store(root=str(projects), since_hours=24, sessions_dir=str(sessions))
     store.cfg = dict(store.cfg, claude_bin=claude, claude_args=["--verbose"], claude_env={"MY_VAR": "1"}, models=["my-model"])
@@ -280,3 +281,4 @@ def test_enter_starts_claude_with_the_choices_and_selects_the_new_session(tmp_pa
 
     run(scenario, store)
     assert seen == [(str(work / "proj"), ["--model", "my-model", "--permission-mode", "plan", "--verbose", "-w"], claude, "1")]
+    assert opened == [(str(work / "proj"), ["attach", "bbbbbbbb"], True)]

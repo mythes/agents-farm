@@ -4,6 +4,7 @@ import os
 import signal
 import stat
 import sys
+import time
 
 import pytest
 
@@ -111,3 +112,38 @@ def test_a_program_that_cannot_start_is_an_error_not_a_crash(tmp_path):
     bad.chmod(0o755)
     with pytest.raises(RunError, match="cannot start"):
         runner.run_interactive(str(tmp_path), [], str(bad))
+
+
+def test_ctrl_z_during_the_run_does_not_stop_us(tmp_path):
+    """The terminal sends Ctrl-Z to the whole foreground group, so also to us. We must go on."""
+    claude = fake_claude(tmp_path, "import time\ntime.sleep(0.6)")
+    import threading
+    threading.Timer(0.3, lambda: os.kill(os.getpid(), signal.SIGTSTP)).start()
+    assert runner.run_interactive(str(tmp_path), [], claude) == 0           # a stopped test process would never get here
+
+
+def test_a_child_that_stops_is_resumed_so_ctrl_z_does_nothing_in_a_normal_session(tmp_path):
+    claude = fake_claude(tmp_path, "import signal\nos.kill(os.getpid(), signal.SIGSTOP)\nsys.exit(7)")  # stops itself, exits 7 once resumed
+    assert runner.run_interactive(str(tmp_path), [], claude) == 7
+
+
+def test_leave_on_stop_ends_the_viewer_and_returns_zero(tmp_path):
+    pidfile = tmp_path / "pid"
+    claude = fake_claude(tmp_path, f"open({str(pidfile)!r}, 'w').write(str(os.getpid()))\nimport signal, time\nos.kill(os.getpid(), signal.SIGSTOP)\ntime.sleep(60)")
+    started = time.monotonic()
+    assert runner.run_interactive(str(tmp_path), ["attach", "x"], claude, leave_on_stop=True) == 0
+    assert time.monotonic() - started < 8
+    pid = int(pidfile.read_text())
+    time.sleep(0.2)
+    with pytest.raises(ProcessLookupError):
+        os.kill(pid, 0)                                                         # the stopped viewer is gone, not left behind
+
+
+def test_exit_codes_and_signals_are_reported(tmp_path):
+    assert runner.run_interactive(str(tmp_path), [], fake_claude(tmp_path, "sys.exit(3)")) == 3
+    assert runner.run_interactive(str(tmp_path), [], fake_claude(tmp_path, "os.kill(os.getpid(), 15)")) == 128 + 15
+
+
+def test_a_trust_refusal_is_recognised():
+    assert runner.is_trust_error("Workspace not trusted. Run `claude` in /x once and accept the trust prompt, then retry.")
+    assert not runner.is_trust_error("cannot start claude: boom") and not runner.is_trust_error("")

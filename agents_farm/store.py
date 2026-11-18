@@ -17,6 +17,7 @@ from .registry import LiveSession, Registry
 from .transcripts import TranscriptReader, project_from_dir
 
 DISCOVER_EVERY_S = 10
+ENDED_AFTER_S = 60        # no process and no new output for this long: the session has ended
 LIVE_STATES = ('idle', 'busy', 'waiting')   # the values of `status` in the pid files that we act on
 
 
@@ -228,6 +229,12 @@ class Store:
             if hst is not None:
                 st, note = hst, hnote or note
 
+        # The registry says there is no process, and the transcript has been quiet for a while: the session was
+        # interrupted or closed. "Running", "thinking", "stalled" and "waiting" are only guesses from the transcript
+        # and would be wrong here, so it is just an ended session (hidden until you press h). A session that is
+        # still writing (age < ENDED_AFTER_S) may be running without a pid file, so it keeps the guess.
+        if a.live is False and not a.parent and age >= ENDED_AFTER_S and st in (Status.RUNNING, Status.THINKING, Status.STALLED, Status.WAITING):
+            st, note = Status.IDLE, "ended: its process is not running"
         if st == Status.DONE and not a.from_pid_file and age > float(cfg["done_visible_min"]) * 60:
             st = Status.IDLE
         if known is None and st in (Status.STALLED, Status.WAITING) and age > 6 * 3600:

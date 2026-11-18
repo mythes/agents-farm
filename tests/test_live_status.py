@@ -145,3 +145,37 @@ def test_top_bar_names_the_source_of_the_status():
     assert "hooks ✓" in bar(False, True) and "live" not in bar(False, True)
     assert "approximated" in bar(False, False)
     assert "DEMO" in bar(False, False, source="demo")
+
+
+# ------------------------------------------------- a session whose process is gone
+
+def gone(age, **kw):
+    a = agent(age=age, live=None, pid=None, **kw)
+    a.live = False                          # the registry works, and there is no process for this session
+    return a
+
+
+def test_a_session_with_no_process_is_ended_not_stalled(tmp_path):
+    """The transcript ends with a prompt that never got an answer (interrupted): that is not 'stalled'."""
+    store = make_store(tmp_path)
+    status, note = derive(store, gone(age=3600, last_kind="user", stop=None))
+    assert status == Status.IDLE and "ended" in note
+    assert derive(store, gone(age=3600, pending=1, stop="tool_use"))[0] == Status.IDLE      # a tool that never finished
+    hooked = make_store(tmp_path)
+    hooked.events.latest["s1"] = HookState(NOW, "PermissionRequest", "Bash", None, None, None)
+    assert derive(hooked, gone(age=3600, pending=1, stop="tool_use"))[0] == Status.IDLE     # even a stale 'waiting' hook
+
+
+def test_a_recent_session_without_a_pid_file_keeps_the_guess(tmp_path):
+    """It may be running without a pid file (an older Claude Code): only a quiet transcript means 'ended'."""
+    assert derive(make_store(tmp_path), gone(age=5, last_kind="user", stop=None))[0] == Status.THINKING
+
+
+def test_ended_does_not_hide_errors_or_finished_work_and_unknown_stays_unknown(tmp_path):
+    store = make_store(tmp_path)
+    err = gone(age=3600, last_kind="error", stop=None)
+    err.error_note = "API Error: 529"
+    assert derive(store, err)[0] == Status.ERROR
+    assert derive(store, gone(age=300))[0] == Status.DONE                                    # a finished answer
+    unknown = agent(age=3600, live=None, pid=None, pending=1, stop="tool_use")               # live is None: no registry
+    assert derive(store, unknown)[0] == Status.STALLED

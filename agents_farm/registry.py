@@ -66,7 +66,7 @@ def process_start_times(pids: List[int]) -> Optional[Dict[int, float]]:
     try:
         # Fixed command; the pids are integers read from validated files.
         out = subprocess.run(  # nosec B603 B607
-            ["ps", "-o", "pid=,lstart=", "-p", ",".join(str(p) for p in pids)],
+            ["ps", "-o", "pid=,stat=,lstart=", "-p", ",".join(str(p) for p in pids)],
             capture_output=True, text=True, env=env, timeout=5,
         ).stdout
     except (OSError, subprocess.SubprocessError):
@@ -74,7 +74,8 @@ def process_start_times(pids: List[int]) -> Optional[Dict[int, float]]:
     result: Dict[int, float] = {}
     for line in out.splitlines():
         head, _, rest = line.strip().partition(" ")
-        if head.isdigit():
+        state, _, rest = rest.strip().partition(" ")
+        if head.isdigit() and not state.startswith("Z"):      # a zombie has ended: it only waits for its parent
             started = _parse_lstart(rest)
             if started is not None:
                 result[int(head)] = started

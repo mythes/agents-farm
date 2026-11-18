@@ -372,20 +372,22 @@ class NewSession(ModalScreen):
         t.append("   background ", style=OPT_LABEL)
         t.append("on" if o["background"] else "off", style="bold " + BLUE if o["background"] else OPT_QUIET)
         self.query_one("#ns-opts", Static).update(t)
-        # Both ways of leaving a session are always shown; the one that matches the choice is brighter.
+        # Both ways are always shown; the one that matches the choice is brighter.
         on = bool(o["background"])
         bright, dim = "white", "grey58"
         info = Text(no_wrap=True, overflow="ellipsis")
         info.append(" Background (Ctrl+B): ", style=("bold " + bright) if on else dim)
-        info.append("keeps running. Open it with ", style=bright if on else dim)
+        info.append("starts and stays closed. Open it with ", style=bright if on else dim)
         info.append("a", style="bold cyan")
         info.append(", leave it with ", style=bright if on else dim)
         info.append("Ctrl+Z", style="bold cyan")
-        info.append(" (not /exit)\n", style=bright if on else dim)
+        info.append("\n", style=dim)
         info.append(" Normal session: ", style=dim if on else ("bold " + bright))
-        info.append("leave it with ", style=dim if on else bright)
+        info.append("opens here at once. Leave with ", style=dim if on else bright)
+        info.append("Ctrl+Z", style="bold cyan")
+        info.append(" (keeps running) or ", style=dim if on else bright)
         info.append("/exit", style="bold")
-        info.append(" (ends it; Ctrl+Z does nothing there)", style=dim if on else bright)
+        info.append(" (ends it)", style=dim if on else bright)
         self.query_one("#ns-info", Static).update(info)
         warn = ""
         if o["background"] and o["mode"] == "default":
@@ -990,9 +992,14 @@ class FarmApp(App):
             self.notify(str(exc), title="not started", severity="error", timeout=8, markup=False)
             return
         before = {x.id for x in self.snap.agents} if self.snap else set()
-        if choice.get("background"):
-            self._start_background(cwd, args, claude, env, before)
-            return
+        # Every session starts in the background (`claude --bg`), so it keeps running whatever you do next.
+        # Without "background" we then open it right away (`claude attach`), and Ctrl+Z leaves it running.
+        self._start_background(cwd, args, claude, env, before, open_now=not choice.get("background"))
+
+    def _start_foreground(self, cwd, args, claude, env, before, why: str) -> None:
+        """A normal `claude` in this terminal. Used only when claude will not start a background session here."""
+        self.notify(f"{why} Starting a normal session instead: accept the trust question there. "
+                    "It runs in the foreground, so leave it with /exit.", title="not in the background", severity="warning", timeout=10, markup=False)
         try:
             with self.suspend():
                 code = runner.run_interactive(cwd, args, claude, env)
@@ -1008,20 +1015,38 @@ class FarmApp(App):
     # ------------------------------------------------------ background sessions
 
     @work(thread=True, exclusive=True, group="bg-start")
-    def _start_background(self, cwd, args, claude, env, before) -> None:
+    def _start_background(self, cwd, args, claude, env, before, open_now: bool = False) -> None:
         try:
             sid = runner.start_background(cwd, args, claude, env)
         except runner.RunError as exc:
+            if open_now and runner.is_trust_error(str(exc)):
+                self.call_from_thread(self._start_foreground, cwd, args, claude, env, before, str(exc))
+                return
             self.call_from_thread(self.notify, str(exc), title="not started", severity="error", timeout=10, markup=False)
             return
-        self.call_from_thread(self._background_started, sid, before)
+        self.call_from_thread(self._background_started, sid, before, open_now, cwd, claude, env)
 
-    def _background_started(self, sid: str, before) -> None:
+    def _background_started(self, sid: str, before, open_now: bool, cwd: str, claude: str, env) -> None:
         self._pick_new = before
         getattr(self.store, "rediscover", lambda: None)()
         self.refresh_data()
-        self.notify(f"started in the background ({sid}). Press a to attach, and Ctrl+Z to leave it running.",
+        if open_now:
+            self._open_session(sid, cwd, claude, env)
+            return
+        self.notify(f"started in the background ({sid}). Press a to open it, and Ctrl+Z to leave it running.",
                     title="background session", timeout=8, markup=False)
+
+    def _open_session(self, sid: str, cwd: str, claude: str, env) -> None:
+        """`claude attach <id>` in this terminal. Ctrl+Z ends the attach client and brings us back."""
+        try:
+            with self.suspend():
+                code = runner.run_interactive(cwd, ["attach", sid], claude, env, leave_on_stop=True)
+        except runner.RunError as exc:
+            self.notify(str(exc), title="not attached", severity="error", timeout=8, markup=False)
+            return
+        self.refresh_data()
+        if code != 0:
+            self.notify(f"claude exited with code {code}", severity="warning", timeout=6, markup=False)
 
     def action_attach(self) -> None:
         """a: open a background session in this terminal. Ctrl+Z leaves it and it keeps running."""
@@ -1046,15 +1071,7 @@ class FarmApp(App):
             self.notify(str(exc), title="not attached", severity="error", timeout=8, markup=False)
             return
         cwd = a.cwd if a.cwd and os.path.isdir(a.cwd) else os.getcwd()
-        try:
-            with self.suspend():
-                code = runner.run_interactive(cwd, args, claude, env)
-        except runner.RunError as exc:
-            self.notify(str(exc), title="not attached", severity="error", timeout=8, markup=False)
-            return
-        self.refresh_data()
-        if code != 0:
-            self.notify(f"claude exited with code {code}", severity="warning", timeout=6, markup=False)
+        self._open_session(args[1], cwd, claude, env)
 
     def _stop_background(self, a: Agent) -> None:
         if self.snap and self.snap.source == "demo":

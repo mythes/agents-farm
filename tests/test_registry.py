@@ -143,3 +143,16 @@ def test_store_with_custom_projects_folder_does_not_read_real_sessions(tmp_path)
     assert not store.registry.available
     agent = store.refresh().agents[0]
     assert agent.live is None and agent.pid is None
+
+
+@needs_ps
+def test_a_zombie_is_not_a_running_process():
+    """A finished process whose parent has not cleaned up yet (<defunct>) must not count as running."""
+    import subprocess
+    child = subprocess.Popen(["true"])
+    time.sleep(0.5)                                                   # it has ended, and we did not wait() for it: a zombie
+    try:
+        assert child.pid not in process_start_times([child.pid])
+        assert MY_PID in process_start_times([MY_PID])                # a live process is still listed
+    finally:
+        child.wait()

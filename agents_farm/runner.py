@@ -12,6 +12,7 @@ import re
 import shutil
 import signal
 import subprocess  # nosec B404
+import time
 from typing import Dict, List, Optional
 
 from .model import sanitize
@@ -105,19 +106,67 @@ def build_env(extra: Optional[Dict[str, str]] = None) -> Dict[str, str]:
     return env
 
 
-def run_interactive(cwd: str, args: List[str], claude: str, env: Optional[Dict[str, str]] = None) -> int:
-    """Run `claude` and wait. Ctrl-C goes to `claude` too, but must not stop us.
+def _noop(*_args) -> None:
+    pass
 
-    We use a handler that does nothing, not SIG_IGN: "ignore" is inherited by the child
-    (claude would never see Ctrl-C), while a handler is reset to the default on exec.
+
+def _leave(proc: "subprocess.Popen") -> None:
+    """End a viewer that was stopped by Ctrl+Z (a `claude attach` client). The session itself lives on."""
+    for sig, wait in ((signal.SIGTERM, 3.0), (signal.SIGKILL, 3.0)):
+        try:
+            os.kill(proc.pid, signal.SIGCONT)     # a stopped process only sees SIGTERM after it continues
+            os.kill(proc.pid, sig)
+        except ProcessLookupError:
+            return
+        end = time.monotonic() + wait
+        while time.monotonic() < end:
+            try:
+                done, _ = os.waitpid(proc.pid, os.WNOHANG)
+            except ChildProcessError:
+                return
+            if done:
+                return
+            time.sleep(0.05)
+
+
+def run_interactive(cwd: str, args: List[str], claude: str, env: Optional[Dict[str, str]] = None,
+                    leave_on_stop: bool = False) -> int:
+    """Run `claude` and wait.
+
+    Ctrl-C and Ctrl-Z reach `claude` through the terminal, and the terminal sends them to every
+    process in the foreground group, which includes us. So we must not be stopped or killed by them:
+    we use handlers that do nothing, not SIG_IGN. "Ignore" is inherited by the child (claude
+    would never see the key), while a handler is reset to the default when the child starts.
+
+    If the child stops (Ctrl-Z): with `leave_on_stop` (an attach client) that means "leave", so
+    the client is ended and we return 0, and the session it showed keeps running. Otherwise the
+    child is resumed, so Ctrl-Z does nothing and never leaves a stopped process behind.
     """
-    old = signal.signal(signal.SIGINT, lambda *_: None)
+    old = {signal.SIGINT: signal.signal(signal.SIGINT, _noop)}
+    if hasattr(signal, "SIGTSTP"):
+        old[signal.SIGTSTP] = signal.signal(signal.SIGTSTP, _noop)
     try:
-        return subprocess.call([claude] + args, cwd=cwd, env=env)  # nosec B603
-    except OSError as exc:
-        raise RunError(f"cannot start claude: {exc}") from exc
+        try:
+            proc = subprocess.Popen([claude] + args, cwd=cwd, env=env)  # nosec B603
+        except OSError as exc:
+            raise RunError(f"cannot start claude: {exc}") from exc
+        while True:
+            try:
+                _, status = os.waitpid(proc.pid, os.WUNTRACED)
+            except ChildProcessError:
+                return 0
+            if os.WIFSTOPPED(status):
+                if leave_on_stop:
+                    _leave(proc)
+                    proc.returncode = 0
+                    return 0
+                os.kill(proc.pid, signal.SIGCONT)
+                continue
+            proc.returncode = os.WEXITSTATUS(status) if os.WIFEXITED(status) else 128 + os.WTERMSIG(status)
+            return proc.returncode
     finally:
-        signal.signal(signal.SIGINT, old)
+        for sig, handler in old.items():
+            signal.signal(sig, handler)
 
 
 # ---------------------------------------------------------------- background sessions (T9)
@@ -162,6 +211,11 @@ def start_background(cwd: str, args: List[str], claude: str, env: Optional[Dict[
     if done.returncode != 0 or not match:
         raise RunError(_first_line(done.stderr) or _first_line(done.stdout) or f"claude --bg failed (exit {done.returncode})")
     return match.group(1)
+
+
+def is_trust_error(message: str) -> bool:
+    """`claude --bg` only starts in a folder you already trusted. It says so with 'Workspace not trusted'."""
+    return "not trusted" in (message or "").lower()
 
 
 def attach_args(session_id: str) -> List[str]:

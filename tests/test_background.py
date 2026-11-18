@@ -181,8 +181,9 @@ def run(scenario, store, size=(130, 40)):
 
 @pytest.fixture
 def calls(monkeypatch):
-    seen = {"interactive": [], "start": [], "stop": [], "kill": []}
-    monkeypatch.setattr(runner, "run_interactive", lambda cwd, args, claude, env=None: seen["interactive"].append((cwd, args)) or 0)
+    seen = {"interactive": [], "start": [], "stop": [], "kill": [], "leave": []}
+    monkeypatch.setattr(runner, "run_interactive",
+                        lambda cwd, args, claude, env=None, leave_on_stop=False: seen["interactive"].append((cwd, args)) or seen["leave"].append(leave_on_stop) or 0)
     monkeypatch.setattr(runner, "start_background", lambda cwd, args, claude, env=None: seen["start"].append((cwd, args)) or "cccccccc")
     monkeypatch.setattr(runner, "stop_background", lambda sid, claude, env=None: seen["stop"].append(sid) or "stopped bbbbbbbb")
     monkeypatch.setattr(runner, "find_claude", lambda cfg=None: "/fake/claude")
@@ -203,6 +204,7 @@ def test_a_attaches_after_a_hint_and_runs_claude_attach(tmp_path, calls):
 
     run(scenario, _store(tmp_path))
     assert calls["interactive"] == [(str(tmp_path), ["attach", "bbbbbbbb"])]
+    assert calls["leave"] == [True]                                           # Ctrl+Z must end the viewer and bring us back
 
 
 @needs_ps
@@ -254,7 +256,7 @@ def test_n_with_ctrl_b_starts_in_the_background_and_warns_about_default_mode(tmp
         text = str(app.screen.query_one("#ns-opts", Static).render())
         assert "background on" in text
         info = str(app.screen.query_one("#ns-info", Static).render())
-        assert "Ctrl+Z" in info and "not /exit" in info                      # the way back is shown
+        assert "Ctrl+Z" in info and "stays closed" in info                   # the way back is shown
         assert "stops at its first permission request" in str(app.screen.query_one("#ns-warn", Static).render())
         await pilot.press("ctrl+s")                                         # acceptEdits: no warning any more
         assert str(app.screen.query_one("#ns-warn", Static).render()).strip() == ""
@@ -279,7 +281,7 @@ def test_demo_mode_starts_attaches_and_stops_nothing(tmp_path, calls):
         await pilot.press("escape")
 
     run(scenario, DemoStore())
-    assert calls == {"interactive": [], "start": [], "stop": [], "kill": []}
+    assert calls == {"interactive": [], "start": [], "stop": [], "kill": [], "leave": []}
 
 
 @needs_ps
@@ -335,7 +337,9 @@ def test_a_normal_session_also_gets_the_first_prompt(tmp_path, calls):
         await pilot.pause(1.0)
 
     run(scenario, _store(tmp_path))
-    assert calls["interactive"] == [(str(work), ["explain the repo"])] and calls["start"] == []
+    # every session is started in the background; a normal one is then opened with `claude attach`
+    assert calls["start"] == [(str(work), ["explain the repo"])]
+    assert calls["interactive"] == [(str(work), ["attach", "cccccccc"])] and calls["leave"] == [True]
 
 
 def test_the_dialog_always_says_how_to_leave_both_kinds_of_session(calls):
@@ -344,8 +348,8 @@ def test_the_dialog_always_says_how_to_leave_both_kinds_of_session(calls):
         await pilot.press("n")
         for _ in range(2):
             info = str(app.screen.query_one("#ns-info", Static).render())
-            assert "Ctrl+Z" in info and "not /exit" in info and "Ctrl+B" in info       # background: how to leave
-            assert "Normal session" in info and "/exit" in info                         # normal: how to leave
+            assert "Ctrl+Z" in info and "stays closed" in info and "Ctrl+B" in info    # background: started and left closed
+            assert "Normal session" in info and "/exit" in info and "keeps running" in info   # normal: opened, leave with Ctrl+Z
             await pilot.press("ctrl+b")
         await pilot.press("escape")
 
@@ -389,7 +393,8 @@ def test_ctrl_f_gives_the_whole_area_to_a_multi_line_prompt(tmp_path, calls):
         assert not isinstance(app.screen, NewSession)
 
     run(scenario, _store(tmp_path))
-    assert calls["interactive"] == [(str(work), ["first line\nsecond line"])]
+    assert calls["start"] == [(str(work), ["first line\nsecond line"])]
+    assert calls["interactive"] == [(str(work), ["attach", "cccccccc"])]
 
 
 def test_the_hints_have_two_levels_and_start_is_always_on_the_list(calls):
@@ -426,3 +431,60 @@ def test_ctrl_e_starts_without_a_prompt_from_the_folder_view(tmp_path, calls):
 
     run(scenario, _store(tmp_path))
     assert calls["start"] == [(str(work), ["--permission-mode", "acceptEdits"])]
+
+
+@needs_ps
+def test_a_folder_that_is_not_trusted_falls_back_to_a_normal_session(tmp_path, calls, monkeypatch):
+    """`claude --bg` refuses an untrusted folder. A normal run lets the user answer the trust question."""
+    work = tmp_path / "work"
+    work.mkdir()
+
+    def refuse(cwd, args, claude, env=None):
+        raise RunError("Workspace not trusted. Run `claude` in /x once and accept the trust prompt, then retry.")
+
+    monkeypatch.setattr(runner, "start_background", refuse)
+
+    async def scenario(app, pilot):
+        await pilot.press("n")
+        app.screen.query_one("#ns-dir", Input).value = str(work) + "/"
+        await pilot.pause(0.2)
+        await pilot.press("enter")
+        await pilot.pause(1.0)
+
+    run(scenario, _store(tmp_path))
+    assert calls["interactive"] == [(str(work), [])] and calls["leave"] == [False]       # a plain claude, not an attach
+
+
+@needs_ps
+def test_background_on_does_not_fall_back_and_shows_the_error(tmp_path, calls, monkeypatch):
+    work = tmp_path / "work"
+    work.mkdir()
+    monkeypatch.setattr(runner, "start_background", lambda *a, **k: (_ for _ in ()).throw(RunError("Workspace not trusted.")))
+
+    async def scenario(app, pilot):
+        await pilot.press("n")
+        app.screen.query_one("#ns-dir", Input).value = str(work) + "/"
+        await pilot.pause(0.2)
+        await pilot.press("ctrl+b", "enter")
+        await pilot.pause(1.0)
+
+    run(scenario, _store(tmp_path))
+    assert calls["interactive"] == []                                                    # nothing took over the terminal
+
+
+@needs_ps
+def test_a_normal_start_opens_the_session_it_just_started_and_ctrl_z_leaves_it(tmp_path, calls):
+    work = tmp_path / "work"
+    work.mkdir()
+
+    async def scenario(app, pilot):
+        await pilot.press("n")
+        app.screen.query_one("#ns-dir", Input).value = str(work) + "/"
+        await pilot.pause(0.2)
+        await pilot.press("enter")
+        await pilot.pause(1.0)
+
+    run(scenario, _store(tmp_path))
+    assert calls["start"] == [(str(work), [])]
+    assert calls["interactive"] == [(str(work), ["attach", "cccccccc"])]
+    assert calls["leave"] == [True]                                                      # Ctrl+Z must end the viewer and bring us back

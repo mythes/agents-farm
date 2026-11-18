@@ -116,7 +116,7 @@ def check(target: Target, sessions_dir: Optional[str]) -> LiveSession:
         raise KillError("ps is not available, so the process cannot be verified")
     actual = starts.get(pid)
     if actual is None:
-        raise KillError("the process is not running any more")
+        raise KillError("the process is not running any more (if it shows as <defunct>, its parent has not cleaned up yet)")
     if abs(actual - session.proc_start) > START_TOLERANCE_S:
         raise KillError("this pid was reused by another program")
 
