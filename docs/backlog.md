@@ -27,6 +27,13 @@ Checked on a real machine with Claude Code 2.1.319 / 2.1.325. These facts change
 6. **`textual.fuzzy.Matcher` is already in Textual 8.2.8.** Checked: `apirf` → `api-refactor` scores 9.52, `docs-writer` scores 0. We need no new dependency.
 7. **CLI flags:** `--resume <id>`, `-c/--continue`, `--fork-session`, `--session-id`, `--model`, `--permission-mode`, `--add-dir`, `-w/--worktree`. The Desktop app uses its own binaries (`…/claude-code/<version>/…/claude --output-format stream-json`). Their parent is a `disclaimer` wrapper.
 8. `tmux` is not required. We chose to run in the same terminal.
+9. **S1 result (checked on 2026-11-18): Desktop sessions do not run the statusLine command. CLI sessions do.**
+   - We added a test statusLine to `~/.claude/settings.json`. A new CLI session (`entrypoint=cli`, 2.1.319) called it twice within seconds.
+   - A new Desktop session (`claude-desktop` 2.1.325) was started after the change, received a prompt and answered. Its hooks from the **same** settings file fired (`SessionStart`, `UserPromptSubmit`, `Stop`), but the statusLine was never called. The four older Desktop sessions did not call it either.
+   - The CLI data had `rate_limits.five_hour` and `seven_day` (`used_percentage`, `resets_at`), `context_window` (size, `used_percentage`, `current_usage`), `cost`, `version`, `workspace.repo` and more.
+   - Limits are shared by the whole account, so a number from a CLI session is also true for Desktop sessions. But it is fresh only while some CLI session is active.
+   - We found no other source for Desktop: the common fields of hook payloads have no limits (per-event fields were only partly read), and nothing is cached on disk (only feature flags).
+10. **Context window sizes can be learned from CLI sessions.** The CLI statusLine reported `context_window_size = 1,000,000` for `claude-haiku-5-5` too, so the default of 200k for haiku-5 is probably wrong. Handle it in T7a.
 
 ---
 
@@ -45,7 +52,7 @@ Checked on a real machine with Claude Code 2.1.319 / 2.1.325. These facts change
 
 | ID | Question | How to check | What it decides |
 |---|---|---|---|
-| **S1** | Does statusLine run in Desktop sessions (`stream-json`)? | Add a temporary statusLine that writes stdin to a file. Open one Desktop session and one CLI session and see if files appear. **Needs your OK to edit `settings.json`** (with a backup) | T6, T7a. If not, for Desktop we use transcripts and mark the values with `≈` |
+| **S1** | Does statusLine run in Desktop sessions (`stream-json`)? | Add a temporary statusLine that writes stdin to a file. Open one Desktop session and one CLI session and see if files appear. **Needs your OK to edit `settings.json`** (with a backup) | T6, T7a. **Result: no for Desktop, yes for CLI (finding 9).** For Desktop we use the newest CLI value (with its age) or transcripts, and mark estimates with `≈` |
 | **S2** | Which values can `status` in `sessions/<pid>.json` have? (We saw only `idle` and `busy`.) Is there a `waiting` for a permission request? | Log changes of `status` / `statusUpdatedAt` for some hours and during a permission request | T0: can we replace hooks with the live status? |
 | **S3** | Does `App.suspend()` + `claude` return the terminal to the TUI in a clean state on macOS (iTerm2, Terminal.app)? | Run `claude` by hand, exit, and check the cursor, mouse mode and colours. The `o` key (pager) is also not tested by hand yet | T3, T4 |
 | **S4** | What happens in Desktop when we kill its `claude` process? | Kill a **throwaway** Desktop session (never a working one) | The warning text in T2 |
@@ -154,27 +161,29 @@ Checked on a real machine with Claude Code 2.1.319 / 2.1.325. These facts change
 
 ### T6 · Limit monitoring: real data from statusLine · L
 
-**Possible:** ✅ there is an official channel. ⚠️ It may not work for Desktop sessions (S1). Pro/Max only, and only after the first API reply.
+**Possible:** ✅ for CLI sessions (S1 confirmed). ⚠️ **Desktop sessions do not run the statusLine (S1)**, so Desktop-only use gets no fresh numbers from it. Pro/Max only, and only after the first API reply.
 
 **What changes:** instead of three bars per model and budgets in the config, we show **two bars: the 5-hour window and the week**, with percent, time to reset and pace.
 
 **Plan**
-1. **`agents-farm statusline`** reads JSON from stdin, writes `~/.agents-farm/state/<session_id>.json` atomically (mode 0600: `rate_limits`, `context_window`, `model`, `transcript_path`, write time), and prints a short line for the status line. It supports chaining: `--then "<command>"` (settings allow only one `statusLine`; you have none today).
+1. **`agents-farm statusline`** (runs in CLI sessions only) reads JSON from stdin, writes `~/.agents-farm/state/<session_id>.json` atomically (mode 0600: `rate_limits`, `context_window`, `model`, `transcript_path`, write time), and prints a short line for the status line. It supports chaining: `--then "<command>"` (settings allow only one `statusLine`; you have none today).
 2. **`agents-farm install-statusline`** shows a diff for `~/.claude/settings.json`, makes a backup, asks to confirm, and refuses without chaining if a `statusLine` already exists. No silent changes.
-3. **Store:** account limits = the newest `rate_limits` across all state files (limits are shared by all sessions). Show the age of the data ("as of 3 min ago"). Mark expired data (`resets_at` in the past) as unknown.
+3. **Store:** account limits = the newest `rate_limits` across all state files (limits are shared by all sessions, so a CLI value is also valid for Desktop sessions). Show the age of the data ("as of 3 min ago"). Mark expired data (`resets_at` in the past) as unknown.
 4. **UI:** bottom bar `5h ███████░░░ 50% ↻2h42m │ 7d ██████░░░░ 54% ↻4d8h`, a pace marker (percent used compared with the share of the window that passed) with a warning "you run out in about X at this pace", the same warn/crit colours, and one alert per window.
-5. **Fallback**, if there is no statusLine data (S1 is negative, or not Pro/Max): the old token estimate, but without budgets per model, clearly marked `≈`, with a hint "install the statusline for exact numbers".
+5. **Fallback**, if there is no statusLine data (no CLI session ran recently, which is the normal case for Desktop-only use, or the plan is not Pro/Max): the old token estimate, but without budgets per model, clearly marked `≈`, with a hint "install the statusline for exact numbers".
 6. **Config:** mark `limits` (budgets per model) and `window_hours` as deprecated. No migration is needed. The keys are ignored with a warning.
 
-**Done when:** after installing the statusLine in a CLI session, the dashboard shows the same percent as `/usage`. Desktop works as S1 decides. Tests cover command chaining, atomic write, expired data and a missing `rate_limits`.
-**Risks:** (a) Desktop may not run statusLine, so limits update only while CLI sessions are active (S1); (b) editing `settings.json` needs a backup and clear confirmation; (c) statusLine runs often (300 ms debounce), so the handler must be fast and must not import Textual.
+**Done when:** after installing the statusLine in a CLI session, the dashboard shows the same percent as `/usage`. For Desktop sessions it shows the newest CLI value with its age, or the `≈` estimate when there is none. Tests cover command chaining, atomic write, expired data and a missing `rate_limits`.
+**Open question (candidate spike S5):** is there any source of fresh limits for a Desktop-only user? Ideas to study: the usage data behind `/usage` (it needs the user's login token and is not documented, so only with explicit consent), or reading the "limit reached" messages in transcripts (only at 100%). Do not build on either before a spike.
+**Risks:** (a) Desktop does not run statusLine (confirmed), so limits update only while CLI sessions are active; (b) editing `settings.json` needs a backup and clear confirmation; (c) statusLine runs often (300 ms debounce), so the handler must be fast and must not import Textual.
 
 ### T7 · Percent per session (both numbers) · M
 
 #### T7a · How full the context is
 
 **Possible:** ✅ the data is already here.
-- Source order: **statusLine state file** (`context_window.used_percentage`, `context_window_size`) → transcript with the window from the config.
+- Source order: **statusLine state file** (`context_window.used_percentage`, `context_window_size`; CLI sessions only, S1) → transcript with the window from the config. Desktop sessions always use the transcript.
+- Learn the window per model from the state files of CLI sessions (for example haiku-5-5 reported 1,000,000) and keep it in a small file, so Desktop sessions of the same model get the right window without any config.
 - Fix the formula: `input + cache_creation + cache_read`, **without** `output`. This matches the official value.
 - Show an auto-compact marker (~97%) and warn near it.
 - With the statusLine we do not need `context_window` in the config for those sessions.
