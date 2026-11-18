@@ -4,6 +4,9 @@ All notable changes are listed here. The format follows [Keep a Changelog](https
 
 ## [Unreleased]
 
+### Changed
+- The `n` dialog always shows how to leave a session, whatever `Ctrl+B` is set to: `Ctrl+Z` for a background session (it keeps running), `/exit` for a normal one (it ends). `Ctrl+Z` does nothing in a normal session. The README says it too.
+
 ### Added
 - Install with Homebrew: `brew install mythes/tap/agents-farm` (the formula is in the separate repository `mythes/homebrew-tap`).
 

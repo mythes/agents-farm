@@ -237,6 +237,7 @@ class NewSession(ModalScreen):
                 yield Static(id="ns-preview")
             yield Input(id="ns-prompt", compact=True, placeholder="first prompt (optional) · ctrl+f switches here and back")
             yield Static(id="ns-opts")
+            yield Static(id="ns-info")
             yield Static(id="ns-warn")
             yield Static(id="ns-error")
             yield Static(self._hints(), id="ns-hints")
@@ -344,6 +345,21 @@ class NewSession(ModalScreen):
         t.append("   background ", style="grey58")
         t.append("on" if o["background"] else "off", style="bold cyan" if o["background"] else "bold")
         self.query_one("#ns-opts", Static).update(t)
+        # Both ways of leaving a session are always shown; the one that matches the choice is brighter.
+        on = bool(o["background"])
+        bright, dim = "white", "grey58"
+        info = Text(no_wrap=True, overflow="ellipsis")
+        info.append(" Background (Ctrl+B): ", style=("bold " + bright) if on else dim)
+        info.append("keeps running. Open it with ", style=bright if on else dim)
+        info.append("a", style="bold cyan")
+        info.append(", leave it with ", style=bright if on else dim)
+        info.append("Ctrl+Z", style="bold cyan")
+        info.append(" (not /exit)\n", style=bright if on else dim)
+        info.append(" Normal session: ", style=dim if on else ("bold " + bright))
+        info.append("leave it with ", style=dim if on else bright)
+        info.append("/exit", style="bold")
+        info.append(" (ends it; Ctrl+Z does nothing there)", style=dim if on else bright)
+        self.query_one("#ns-info", Static).update(info)
         warn = ""
         if o["background"] and o["mode"] == "default":
             warn = "  A background session in default mode stops at its first permission request. Use ctrl+s for acceptEdits or plan."
@@ -437,7 +453,7 @@ class FarmApp(App):
     #ns-preview { width: 45%; height: 1fr; border: round $secondary 40%; border-title-color: $text; padding: 0 1; }
     #new-body.-narrow #ns-preview { display: none; }
     #ns-opts { height: 1; background: $panel; }
-    #ns-error, #ns-warn { height: auto; }
+    #ns-error, #ns-warn, #ns-info { height: auto; }
     #ns-hints { height: 1; background: $panel; }
     #mp-body { width: 70; max-width: 95%; height: auto; max-height: 24; border: round $primary; border-title-color: $text; background: $surface; padding: 0 1; }
     #mp-list { height: auto; max-height: 14; background: $surface; }

@@ -93,7 +93,7 @@ agents-farm status --json
 | `h` | Show or hide idle sessions and finished subagents |
 | `y` | Copy `cd … && claude --resume <id>` (works over SSH too) |
 | `p` | Copy the PID of the agent's process |
-| `a` | Attach to a background session (leave it with `Ctrl+Z`, it keeps running) |
+| `a` | Attach to a background session. **`Ctrl+Z` leaves it and keeps it running** (not `/exit`: that ends it) |
 | `x` | Stop the agent's process. It asks first, and the default answer is No |
 | `n` | Start a new `claude` session in this terminal: folder browser, model list, permission mode, worktree |
 | `o` | Open the full log in `$PAGER` |
@@ -118,6 +118,8 @@ Press `n`. The dialog is a small folder browser:
 - In `--demo` mode nothing is started.
 
 ## Background sessions
+
+> **To leave a background session and keep it running, press `Ctrl+Z`.** You are back in agents-farm and the session works on in the background. Do not type `/exit`: that ends the session.
 
 Claude Code can run a session in the background (`claude --bg`) and let you open it later (`claude attach`). agents-farm uses these official commands:
 

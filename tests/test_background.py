@@ -253,6 +253,8 @@ def test_n_with_ctrl_b_starts_in_the_background_and_warns_about_default_mode(tmp
         await pilot.press("ctrl+b")
         text = str(app.screen.query_one("#ns-opts", Static).render())
         assert "background on" in text
+        info = str(app.screen.query_one("#ns-info", Static).render())
+        assert "Ctrl+Z" in info and "not /exit" in info                      # the way back is shown
         assert "stops at its first permission request" in str(app.screen.query_one("#ns-warn", Static).render())
         await pilot.press("ctrl+s")                                         # acceptEdits: no warning any more
         assert str(app.screen.query_one("#ns-warn", Static).render()).strip() == ""
@@ -334,3 +336,17 @@ def test_a_normal_session_also_gets_the_first_prompt(tmp_path, calls):
 
     run(scenario, _store(tmp_path))
     assert calls["interactive"] == [(str(work), ["explain the repo"])] and calls["start"] == []
+
+
+def test_the_dialog_always_says_how_to_leave_both_kinds_of_session(calls):
+    """Whatever Ctrl+B is set to, both hints are on screen."""
+    async def scenario(app, pilot):
+        await pilot.press("n")
+        for _ in range(2):
+            info = str(app.screen.query_one("#ns-info", Static).render())
+            assert "Ctrl+Z" in info and "not /exit" in info and "Ctrl+B" in info       # background: how to leave
+            assert "Normal session" in info and "/exit" in info                         # normal: how to leave
+            await pilot.press("ctrl+b")
+        await pilot.press("escape")
+
+    run(scenario, DemoStore())
