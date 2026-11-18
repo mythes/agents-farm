@@ -19,7 +19,19 @@ See which agents are working, what they do, how full their context is, and how m
 
 ## Install
 
-You need Python 3.9 or newer and Claude Code. It works on macOS and Linux.
+You need Claude Code. It works on macOS and Linux.
+
+### With Homebrew
+
+```bash
+brew install mythes/tap/agents-farm
+```
+
+Homebrew installs it with its own Python, so you need nothing else. Then run `af --demo`. You get the commands `agents-farm` and the short name `af` (Homebrew makes `af` as a link, and it will not replace a file it did not create). Update with `brew upgrade agents-farm`, remove with `brew uninstall agents-farm`. The formula lives in [mythes/homebrew-tap](https://github.com/mythes/homebrew-tap), a tap that can hold more apps later.
+
+### With the install script
+
+You need Python 3.9 or newer.
 
 ```bash
 git clone https://github.com/mythes/agents-farm.git
@@ -45,7 +57,7 @@ The script does not edit your shell config or `~/.claude/settings.json`. `--unin
 Install without a clone (read the script first: [scripts/install.sh](scripts/install.sh)):
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/mythes/agents-farm/main/scripts/install.sh | bash -s -- --ref v0.2.0
+curl -fsSL https://raw.githubusercontent.com/mythes/agents-farm/main/scripts/install.sh | bash -s -- --ref v0.4.0
 ```
 
 > **Why `af`?** It is short, and at the time of writing it is free in Homebrew, PyPI and Debian. Two old tools use the same name: an npm package (the AppFog CLI) and a Rust crate (an HTTP fetch tool). If you installed one of them, or you have `alias af=…`, the script will notice and keep your command. The short name is only a link made on your machine, so the package itself does not claim `af` for everyone.
@@ -217,7 +229,7 @@ scripts/          checks and demo recording
 
 ## Roadmap
 
-See [docs/backlog.md](docs/backlog.md) and the [issues](https://github.com/mythes/agents-farm/issues). Done in v0.2.0: PID column, live status, fuzzy search, stop with `x`, start a new session with `n`. Next: resume a session, then real limits and the share of the limits per session.
+See [docs/backlog.md](docs/backlog.md) and the [issues](https://github.com/mythes/agents-farm/issues). Done up to v0.4.0: PID column, live status, fuzzy search, stop with `x`, start a new session with `n` (folder browser, models), background sessions (`Ctrl+B`, attach with `a`). Next: resume a session, then real limits and the share of the limits per session.
 
 ## Contributing
 

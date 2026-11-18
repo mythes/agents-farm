@@ -31,6 +31,7 @@ A release is public and cannot be undone cleanly. **Ask the user to confirm befo
 
    Use the changelog section of this version as the notes. Do not attach big files.
 6. Check that the release page and the CI run are fine. Tell the user the release URL.
+7. **Update the Homebrew formula** in the separate repository `mythes/homebrew-tap` (`Formula/agents-farm.rb`): set the new tag in `url`, and the new `sha256` (`curl -sL <url> | shasum -a 256`). If the dependencies changed, refresh the `resource` blocks (`brew update-python-resources mythes/tap/agents-farm`). Test with `brew reinstall mythes/tap/agents-farm`, `brew test` and `brew audit --strict --online`. Then ask the user before you push the tap.
 
 ## Rules
 

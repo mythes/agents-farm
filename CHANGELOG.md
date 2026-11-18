@@ -4,6 +4,9 @@ All notable changes are listed here. The format follows [Keep a Changelog](https
 
 ## [Unreleased]
 
+### Added
+- Install with Homebrew: `brew install mythes/tap/agents-farm` (the formula is in the separate repository `mythes/homebrew-tap`).
+
 ## [0.4.0] - 2026-11-18
 
 Background sessions: start them, attach to them and come back, all from the dashboard.
