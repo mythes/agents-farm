@@ -12,7 +12,7 @@ from .model import ActivityItem, Agent, LimitInfo, PlanItem, Snapshot, Status, u
 TOOLS = [
     ("Read", "src/auth/session.ts"), ("Grep", "getSession\\("), ("Edit", "src/auth/index.ts"),
     ("Bash", "npm test -- auth"), ("Read", "src/server.ts"), ("Edit", "src/server.ts"),
-    ("Bash", "git diff --stat"), ("Write", "src/auth/README.md"), ("say", "Тести пройшли, оновлюю імпорти"),
+    ("Bash", "git diff --stat"), ("Write", "src/auth/README.md"), ("say", "Tests pass, updating the imports"),
 ]
 
 
@@ -23,18 +23,18 @@ class DemoStore:
         self.rng = random.Random(7)  # nosec B311
         now = utcnow()
         self.agents = [
-            self._mk("docs-writer", "Оновити README і видалити застарілі доки", "claude-sonnet-5-5", Status.WAITING, 2, 0.34,
+            self._mk("docs-writer", "Update the README and remove old docs", "claude-sonnet-5-5", Status.WAITING, 2, 0.34,
                      note="Claude needs your permission to use Bash: rm docs/old/README.md"),
-            self._mk("api-refactor", "Винести auth у окремий модуль, зберегти публічний API", "claude-opus-5-5", Status.RUNNING, 12, 0.71,
-                     plan=["Знайти всі використання session", "Створити src/auth/", "Перенести код", "Оновити імпорти", "Прогнати тести"], step=2),
-            self._mk("test-fixer", "Полагодити flaky тест у payments", "claude-sonnet-5-5", Status.THINKING, 4, 0.22),
-            self._mk("migrations", "Додати індекс на orders.created_at", "claude-haiku-5-5", Status.RUNNING, 1, 0.08),
-            self._mk("deploy-check", "Перевірити деплой staging", "claude-sonnet-5-5", Status.ERROR, 6, 0.40,
+            self._mk("api-refactor", "Move auth into its own module, keep the public API", "claude-opus-5-5", Status.RUNNING, 12, 0.71,
+                     plan=["Find all uses of session", "Create src/auth/", "Move the code", "Update the imports", "Run the tests"], step=2),
+            self._mk("test-fixer", "Fix the flaky test in payments", "claude-sonnet-5-5", Status.THINKING, 4, 0.22),
+            self._mk("migrations", "Add an index on orders.created_at", "claude-haiku-5-5", Status.RUNNING, 1, 0.08),
+            self._mk("deploy-check", "Check the staging deploy", "claude-sonnet-5-5", Status.ERROR, 6, 0.40,
                      note="API Error: 529 overloaded — retries exhausted"),
-            self._mk("perf-audit", "Знайти повільні запити в /reports", "claude-opus-5-5", Status.STALLED, 18, 0.55,
+            self._mk("perf-audit", "Find slow queries in /reports", "claude-opus-5-5", Status.STALLED, 18, 0.55,
                      note="Bash pending for 4m — maybe waiting for permission"),
-            self._mk("lint-pass", "Прогнати лінтер і виправити попередження", "claude-haiku-5-5", Status.DONE, 9, 0.12),
-            self._mk("old-spike", "Спайк: SSE замість polling", "claude-sonnet-5-5", Status.IDLE, 300, 0.3),
+            self._mk("lint-pass", "Run the linter and fix warnings", "claude-haiku-5-5", Status.DONE, 9, 0.12),
+            self._mk("old-spike", "Spike: SSE instead of polling", "claude-sonnet-5-5", Status.IDLE, 300, 0.3),
         ]
         sub = self._mk("explore auth usages", "Find every caller of getSession()", "claude-haiku-5-5", Status.RUNNING, 1, 0.1)
         sub.parent = self.agents[1].id

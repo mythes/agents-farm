@@ -1,0 +1,76 @@
+"""Repository hygiene: keep the repo small, English-only and free of personal data."""
+
+import os
+import re
+
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+SKIP_DIRS = {".git", ".venv", "__pycache__", ".pytest_cache", "agents_farm.egg-info", "node_modules"}
+TEXT_EXT = {".py", ".md", ".toml", ".yml", ".yaml", ".sh", ".txt", ".json", ".cast", ""}
+
+GIF_BUDGET = 1 * 1024 * 1024      # the README demo
+CAST_BUDGET = 2 * 1024 * 1024     # raw text; git stores it compressed
+FILE_BUDGET = 2 * 1024 * 1024     # no other file may be bigger than this
+
+
+def _files():
+    for base, dirs, names in os.walk(ROOT):
+        dirs[:] = [d for d in dirs if d not in SKIP_DIRS]
+        for name in names:
+            yield os.path.join(base, name)
+
+
+def _text_files():
+    for path in _files():
+        if os.path.splitext(path)[1].lower() in TEXT_EXT and not path.endswith(".cast"):
+            yield path
+
+
+def _read(path):
+    with open(path, encoding="utf-8", errors="replace") as fh:
+        return fh.read()
+
+
+def test_demo_assets_stay_small():
+    for name, budget in (("demo.gif", GIF_BUDGET), ("demo.cast", CAST_BUDGET)):
+        path = os.path.join(ROOT, "docs", name)
+        assert os.path.exists(path), f"docs/{name} is missing: run scripts/make_demo.sh"
+        assert os.path.getsize(path) <= budget, f"docs/{name} is over its size budget"
+
+
+def test_no_large_files():
+    for path in _files():
+        assert os.path.getsize(path) <= FILE_BUDGET, f"{os.path.relpath(path, ROOT)} is larger than 2 MB"
+
+
+def test_text_files_are_english_only():
+    cyrillic = re.compile("[" + chr(0x0400) + "-" + chr(0x04FF) + "]")  # built with chr(): no literal Cyrillic in this file
+    for path in _text_files():
+        assert not cyrillic.search(_read(path)), f"non-English text in {os.path.relpath(path, ROOT)}"
+
+
+def test_no_personal_data():
+    # Built from parts so this file does not match itself.
+    needles = ["olex" + "olex", "mythes" + "666", "@gm" + "ail.com", "/Users/" + "olex"]
+    for path in _text_files():
+        if path == os.path.abspath(__file__):
+            continue
+        text = _read(path)
+        for needle in needles:
+            assert needle not in text, f"personal data ({needle}) in {os.path.relpath(path, ROOT)}"
+
+
+def test_version_is_consistent():
+    pyproject = _read(os.path.join(ROOT, "pyproject.toml"))
+    init = _read(os.path.join(ROOT, "agents_farm", "__init__.py"))
+    a = re.search(r'^version = "([^"]+)"', pyproject, re.M).group(1)
+    b = re.search(r'__version__ = "([^"]+)"', init).group(1)
+    assert a == b, f"pyproject has {a} but __init__ has {b}"
+
+
+def test_every_skill_has_frontmatter():
+    skills = os.path.join(ROOT, ".claude", "skills")
+    for name in os.listdir(skills):
+        text = _read(os.path.join(skills, name, "SKILL.md"))
+        match = re.match(r"---\nname: (.+)\ndescription: (.+)\n(?:.*\n)*?---\n", text)
+        assert match, f"{name}/SKILL.md needs a frontmatter with name and description"
+        assert match.group(1).strip() == name, f"skill name must match its folder: {name}"
