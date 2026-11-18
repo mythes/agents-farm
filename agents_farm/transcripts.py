@@ -165,7 +165,8 @@ class TranscriptReader:
             out = int(usage.get("output_tokens") or 0)
             cc = int(usage.get("cache_creation_input_tokens") or 0)
             cr = int(usage.get("cache_read_input_tokens") or 0)
-            a.context_tokens = inp + cc + cr + out
+            if inp + cc + cr > 0:  # '<synthetic>' / error messages carry zero usage
+                a.context_tokens = inp + cc + cr + out
             mid = msg.get("id")
             if mid and mid not in self._seen_msgs and ts:
                 self._seen_msgs.add(mid)

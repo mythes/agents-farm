@@ -6,6 +6,7 @@ import random
 from datetime import timedelta
 
 from .config import DEFAULTS
+from .render import context_window
 from .model import ActivityItem, Agent, LimitInfo, PlanItem, Snapshot, Status, utcnow
 
 TOOLS = [
@@ -49,7 +50,7 @@ class DemoStore:
                   title=title, model=model, prompt=prompt, first_prompt=prompt)
         a.started = a.prompt_ts = now - timedelta(minutes=minutes)
         a.last_activity = now - timedelta(seconds=self.rng.randint(1, 40) if status in (Status.RUNNING, Status.THINKING) else minutes * 30)
-        a.context_tokens = int(ctx * 200_000)
+        a.context_tokens = int(ctx * context_window(a, DEFAULTS["context_window"]))
         a.tokens_in, a.tokens_out = a.context_tokens * 3, a.context_tokens // 6
         a.status, a.status_note = status, note
         a.hooked = True
@@ -75,7 +76,7 @@ class DemoStore:
                 kind, detail = self.rng.choice(TOOLS)
                 a.activity.append(ActivityItem(now, kind, detail))
                 a.last_activity = now
-                a.context_tokens = min(a.context_tokens + self.rng.randint(500, 4000), 198_000)
+                a.context_tokens = min(a.context_tokens + self.rng.randint(500, 4000), int(0.95 * context_window(a, DEFAULTS["context_window"])))
             elif a.status == Status.THINKING and self.rng.random() < 0.1:
                 a.status = Status.RUNNING
         for fam in self.used:

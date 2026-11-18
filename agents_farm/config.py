@@ -22,8 +22,12 @@ DEFAULTS = {
     "count_cache_read": False,
     "warn": 0.70,
     "crit": 0.90,
-    # Context window per model family (tokens); auto-bumps to 1M if exceeded.
-    "context_window": {"default": 200_000},
+    # Context window in tokens. Transcripts do NOT record the window, so it is set
+    # per model-id substring (longest match wins). Evidence: opus-5-5 sessions
+    # reached 347k, and /context reports 1m for sonnet-5-5. Check `/context` in
+    # Claude Code for your plan and override here. A session that exceeds its
+    # window is bumped up automatically, so the bar can never pass 100%.
+    "context_window": {"default": 200_000, "opus-5": 1_000_000, "sonnet-5": 1_000_000},
     # Only show sessions touched within this many hours.
     "since_hours": 12,
     "stalled_after_s": 90,

@@ -24,7 +24,9 @@ HOOK_EVENTS = [
     "PreToolUse",
     "PostToolUse",
     "Notification",
+    "PermissionRequest",
     "Stop",
+    "StopFailure",
     "SubagentStop",
     "SessionEnd",
 ]
@@ -77,6 +79,8 @@ class HookState:
             return Status.WAITING, msg or "needs your attention"
         if ev == "PermissionRequest":
             return Status.WAITING, f"permission: {self.tool or 'tool'}"
+        if ev == "StopFailure":
+            return Status.ERROR, "turn ended with an API error"
         if ev == "Stop":
             return Status.DONE, ""
         if ev == "SessionEnd":

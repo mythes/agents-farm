@@ -60,12 +60,19 @@ def short_model(model: str) -> str:
 
 def context_window(a: Agent, cfg_windows: Optional[dict] = None) -> int:
     windows = cfg_windows or {"default": 200_000}
-    win = windows.get("default", 200_000)
-    for key, val in windows.items():
-        if key != "default" and key in (a.model or ""):
-            win = val
-    if "[1m]" in (a.model or "") or a.context_tokens > win:
+    model = a.model or ""
+    win = int(windows.get("default", 200_000))
+    best = -1
+    for key, val in windows.items():  # longest matching substring wins
+        if key != "default" and key in model and len(key) > best:
+            win, best = int(val), len(key)
+    if "[1m]" in model:
         win = max(win, 1_000_000)
+    if a.context_tokens > win:  # window is bigger than assumed: never show >100%
+        for tier in (200_000, 500_000, 1_000_000, 2_000_000):
+            if a.context_tokens <= tier:
+                return max(win, tier)
+        return a.context_tokens
     return win
 
 
