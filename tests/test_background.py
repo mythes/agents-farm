@@ -368,7 +368,8 @@ def test_ctrl_f_gives_the_whole_area_to_a_multi_line_prompt(tmp_path, calls):
         await pilot.press("ctrl+f")
         await pilot.pause(0.3)
         assert not app.screen.query_one("#ns-main").display and box.display and box.has_focus   # the editor took the place
-        assert "Start" in str(app.screen.query_one("#ns-hints", Static).render())
+        hints = " ".join(str(app.screen.query_one("#ns-hints", Static).render()).split())
+        assert "Start" in hints and "Folders" in hints and "Open folder" not in hints
         await pilot.press(*"first line", "enter", *"second line")                    # Enter is a new line here
         assert box.text == "first line\nsecond line"
         table = app.screen.query_one("#ns-list", DataTable)
@@ -381,7 +382,7 @@ def test_ctrl_f_gives_the_whole_area_to_a_multi_line_prompt(tmp_path, calls):
         assert app.screen.query_one("#ns-main").display and not box.display
         line = str(app.screen.query_one("#ns-prompt-line", Static).render())
         assert "first line" in line and "+1 more line" in line
-        assert "Open folder" in str(app.screen.query_one("#ns-hints", Static).render())
+        assert "Open folder" in " ".join(str(app.screen.query_one("#ns-hints", Static).render()).split())
 
         await pilot.press("ctrl+f", "ctrl+e")                                        # start from the editor
         await pilot.pause(1.0)
@@ -389,3 +390,39 @@ def test_ctrl_f_gives_the_whole_area_to_a_multi_line_prompt(tmp_path, calls):
 
     run(scenario, _store(tmp_path))
     assert calls["interactive"] == [(str(work), ["first line\nsecond line"])]
+
+
+def test_the_hints_have_two_levels_and_start_is_always_on_the_list(calls):
+    def levels(app):
+        text = str(app.screen.query_one("#ns-hints", Static).render())
+        return [" ".join(line.split()) for line in text.split("\n")]      # one space between words: the layout does not matter
+
+    async def scenario(app, pilot):
+        await pilot.press("n")
+        lines = levels(app)
+        assert len(lines) == 2
+        assert lines[0].startswith("options") and all(k in lines[0] for k in ("^a Model", "^s Mode", "^d Worktree", "^b Background", "^e Start"))
+        assert lines[1].startswith("navigate") and all(k in lines[1] for k in ("tab Open folder", "^f Prompt", "esc Cancel"))
+        await pilot.press("ctrl+f")                                          # in the prompt editor the options line stays the same
+        lines = levels(app)
+        assert "^e Start" in lines[0] and "^f Folders" in lines[1] and "tab" not in lines[1]
+        await pilot.press("escape")
+
+    run(scenario, DemoStore())
+
+
+@needs_ps
+def test_ctrl_e_starts_without_a_prompt_from_the_folder_view(tmp_path, calls):
+    work = tmp_path / "work"
+    work.mkdir()
+
+    async def scenario(app, pilot):
+        await pilot.press("n")
+        app.screen.query_one("#ns-dir", Input).value = str(work) + "/"
+        await pilot.pause(0.3)
+        await pilot.press("ctrl+b", "ctrl+s", "ctrl+e")                      # no prompt, folder view
+        await pilot.pause(1.0)
+        assert not isinstance(app.screen, NewSession)
+
+    run(scenario, _store(tmp_path))
+    assert calls["start"] == [(str(work), ["--permission-mode", "acceptEdits"])]

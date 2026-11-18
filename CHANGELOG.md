@@ -5,7 +5,7 @@ All notable changes are listed here. The format follows [Keep a Changelog](https
 ## [Unreleased]
 
 ### Changed
-- The first prompt in the `n` dialog is a multi-line editor. `Ctrl+F` hides the folder list and gives the whole area to the prompt: long lines wrap, `Enter` adds a new line, `Ctrl+E` starts the session, and `Ctrl+F` goes back to the folders. The arrow keys, `Tab` and `→` belong to the text there. When the editor is closed, one line under the list shows the prompt.
+- The first prompt in the `n` dialog is a multi-line editor. `Ctrl+F` hides the folder list and gives the whole area to the prompt: long lines wrap, `Enter` adds a new line, and `Ctrl+F` goes back to the folders. `Ctrl+E` starts the session from anywhere in the dialog, with or without a prompt. The arrow keys, `Tab` and `→` belong to the text there. When the editor is closed, one line under the list shows the prompt. The key hints at the bottom of the dialog have two levels: options and start (`^a` `^s` `^d` `^b` `^e`), and navigation (`tab`, `^f`, `esc`). Each group has its own shade (amber for options, blue for moving, green for `Start`, red for `Cancel`), and the values on the options line are coloured by meaning (a changed value stands out, `off` and `default` are quiet).
 
 ## [0.4.1] - 2026-11-18
 

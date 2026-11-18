@@ -45,6 +45,11 @@ HELP = [
 ]
 
 
+# Shades used in the new-session dialog.
+AMBER, BLUE, GREEN, RED = "#ffaf00", "#5fafd7", "#87d787", "#d78787"
+OPT_LABEL, OPT_QUIET, OPT_ON = "grey50", "grey62", "bold white"
+
+
 class HelpScreen(ModalScreen):
     BINDINGS = [Binding("escape,q,question_mark", "dismiss", "Close")]
 
@@ -264,13 +269,25 @@ class NewSession(ModalScreen):
 
     @staticmethod
     def _hints(prompt_mode: bool = False) -> Text:
-        """Like the footer, but in a fixed order (the real footer orders keys by how Textual finds them)."""
+        """Two lines, like a two-level footer. Each group has its own shade:
+        amber keys change options, blue keys move around, green starts, red leaves.
+
+        The real footer orders keys by how Textual finds them, so this one is drawn by hand.
+        """
+        def pill(key: str, colour: str) -> Tuple[str, str]:
+            return f" {key} ", f"bold #101010 on {colour}"
+
+        options = (("^a", "Model", AMBER), ("^s", "Mode", AMBER), ("^d", "Worktree", AMBER), ("^b", "Background", AMBER), ("^e", "Start", GREEN))
+        moving = ((("^f", "Folders", BLUE),) if prompt_mode else (("tab", "Open folder", BLUE), ("^f", "Prompt", BLUE))) + (("esc", "Cancel", RED),)
         t = Text(no_wrap=True, overflow="ellipsis")
-        first = (("^e", "Start"), ("^f", "Folders")) if prompt_mode else (("tab", "Open folder"),)
-        last = () if prompt_mode else (("^f", "Prompt"),)
-        for key, label in first + (("^a", "Model"), ("^s", "Mode"), ("^d", "Worktree"), ("^b", "Background")) + last + (("esc", "Cancel"),):
-            t.append(f" {key} ", style="bold #ffaf00")
-            t.append(f"{label} ")
+        for i, (caption, colour, keys) in enumerate((("options", AMBER, options), ("navigate", BLUE, moving))):
+            t.append(f" {caption:<9}", style=colour)
+            for key, label, c in keys:
+                text, style = pill(key, c)
+                t.append(text, style=style)
+                t.append(f" {label}  ", style="bold" if label == "Start" else "")
+            if i == 0:
+                t.append("\n")
         return t
 
     def on_resize(self, event) -> None:
@@ -346,14 +363,14 @@ class NewSession(ModalScreen):
     def _show_opts(self) -> None:
         o = self.opts
         t = Text()
-        t.append(" model ", style="grey58")
-        t.append(o["model"] or "default", style="bold")
-        t.append("   mode ", style="grey58")
-        t.append(o["mode"], style="bold")
-        t.append("   worktree ", style="grey58")
-        t.append("on" if o["worktree"] else "off", style="bold green" if o["worktree"] else "bold")
-        t.append("   background ", style="grey58")
-        t.append("on" if o["background"] else "off", style="bold cyan" if o["background"] else "bold")
+        t.append(" model ", style=OPT_LABEL)
+        t.append(o["model"] or "default", style=OPT_ON if o["model"] else OPT_QUIET)
+        t.append("   mode ", style=OPT_LABEL)
+        t.append(o["mode"], style={"default": OPT_QUIET, "acceptEdits": "bold " + AMBER, "plan": "bold " + BLUE}.get(o["mode"], "bold"))
+        t.append("   worktree ", style=OPT_LABEL)
+        t.append("on" if o["worktree"] else "off", style="bold " + GREEN if o["worktree"] else OPT_QUIET)
+        t.append("   background ", style=OPT_LABEL)
+        t.append("on" if o["background"] else "off", style="bold " + BLUE if o["background"] else OPT_QUIET)
         self.query_one("#ns-opts", Static).update(t)
         # Both ways of leaving a session are always shown; the one that matches the choice is brighter.
         on = bool(o["background"])
@@ -497,7 +514,7 @@ class FarmApp(App):
     #new-body.-narrow #ns-preview { display: none; }
     #ns-opts { height: 1; background: $panel; }
     #ns-error, #ns-warn, #ns-info { height: auto; }
-    #ns-hints { height: 1; background: $panel; }
+    #ns-hints { height: 2; background: $panel; }
     #mp-body { width: 70; max-width: 95%; height: auto; max-height: 24; border: round $primary; border-title-color: $text; background: $surface; padding: 0 1; }
     #mp-list { height: auto; max-height: 14; background: $surface; }
     #mp-error { height: auto; }
