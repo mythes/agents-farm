@@ -4,9 +4,14 @@ All notable changes are listed here. The format follows [Keep a Changelog](https
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-11-18
+
+A better new-session dialog.
+
 ### Changed
 - The `n` dialog is now a small folder browser. The list follows the path field: delete back to a `/` to see the neighbouring folders, type letters to filter with fuzzy matching (the matched letters are highlighted), `Tab` (or `→` at the end of the text) opens a folder, and `Enter` starts `claude` there. On the `..` row, `Enter` goes up. A preview shows the content of the marked folder, its git branch and your past sessions there. With no `/` in the field, the list shows your recent projects.
 - Model, permission mode and worktree are chosen with `Ctrl+A`, `Ctrl+S` and `Ctrl+D` (next to each other, for one hand). `Ctrl+A` opens a fuzzy model list: `default`, the aliases (`fable`, `opus`, `sonnet`, `haiku`), the models found in your sessions, and the new `models` list in the config. The choices are remembered for the next dialog.
+- The demo in the README now shows the new-session dialog.
 
 ## [0.2.0] - 2026-11-18
 
@@ -63,6 +68,7 @@ First release. A terminal dashboard for Claude Code agents.
 - Usage limits are an estimate. Real plan limits (5-hour and weekly) are planned: [#11](https://github.com/mythes/agents-farm/issues/11).
 - There is no PID column, kill, start or resume yet. See the [backlog](docs/backlog.md).
 
-[Unreleased]: https://github.com/mythes/agents-farm/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/mythes/agents-farm/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/mythes/agents-farm/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/mythes/agents-farm/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/mythes/agents-farm/releases/tag/v0.1.0
