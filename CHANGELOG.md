@@ -4,6 +4,9 @@ All notable changes are listed here. The format follows [Keep a Changelog](https
 
 ## [Unreleased]
 
+### Changed
+- The first prompt in the `n` dialog is a multi-line editor. `Ctrl+F` hides the folder list and gives the whole area to the prompt: long lines wrap, `Enter` adds a new line, `Ctrl+E` starts the session, and `Ctrl+F` goes back to the folders. The arrow keys, `Tab` and `→` belong to the text there. When the editor is closed, one line under the list shows the prompt.
+
 ## [0.4.1] - 2026-11-18
 
 Install with Homebrew, and clearer hints for leaving a session.

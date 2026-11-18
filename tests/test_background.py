@@ -10,7 +10,7 @@ from contextlib import contextmanager
 from datetime import timedelta
 
 import pytest
-from textual.widgets import Input, Static
+from textual.widgets import DataTable, Input, Static, TextArea
 
 from agents_farm import killer, runner
 from agents_farm.app import AttachHint, ConfirmKill, FarmApp, NewSession
@@ -293,11 +293,11 @@ def test_ctrl_f_switches_to_the_prompt_field_and_the_prompt_is_sent_first(tmp_pa
         await pilot.pause(0.2)
         await pilot.press("ctrl+b", "ctrl+s")
         await pilot.press("ctrl+f")
-        assert app.screen.query_one("#ns-prompt", Input).has_focus
-        await pilot.press("tab", "right")                                    # these must not open a folder from the prompt field
+        assert app.screen.query_one("#ns-prompt", TextArea).has_focus
+        await pilot.press("tab", "right")                                    # these must not open a folder from the prompt editor
         assert app.screen.query_one("#ns-dir", Input).value.endswith("/work/")
-        app.screen.query_one("#ns-prompt", Input).value = "--evil start"
-        await pilot.press("enter")
+        app.screen.query_one("#ns-prompt", TextArea).text = "--evil start"
+        await pilot.press("ctrl+e")                                          # Enter would add a new line: Ctrl+E starts
         await pilot.pause(1.0)
         assert not isinstance(app.screen, NewSession)
 
@@ -311,7 +311,7 @@ def test_enter_on_dot_dot_in_the_prompt_field_does_not_start(tmp_path, calls):
         await pilot.press("n")
         app.screen.query_one("#ns-dir", Input).value = str(tmp_path) + "/"
         await pilot.pause(0.2)
-        await pilot.press("down", "ctrl+f", "enter")                         # the ".." row
+        await pilot.press("down", "ctrl+f", "ctrl+e")                        # the ".." row
         await pilot.pause(0.3)
         assert isinstance(app.screen, NewSession)
         assert "marked row is .." in str(app.screen.query_one("#ns-error", Static).render())
@@ -330,7 +330,7 @@ def test_a_normal_session_also_gets_the_first_prompt(tmp_path, calls):
         await pilot.press("n")
         app.screen.query_one("#ns-dir", Input).value = str(work) + "/"
         await pilot.pause(0.2)
-        app.screen.query_one("#ns-prompt", Input).value = "explain the repo"
+        app.screen.query_one("#ns-prompt", TextArea).text = "explain the repo"
         await pilot.press("enter")
         await pilot.pause(1.0)
 
@@ -350,3 +350,42 @@ def test_the_dialog_always_says_how_to_leave_both_kinds_of_session(calls):
         await pilot.press("escape")
 
     run(scenario, DemoStore())
+
+
+@needs_ps
+def test_ctrl_f_gives_the_whole_area_to_a_multi_line_prompt(tmp_path, calls):
+    work = tmp_path / "work"
+    work.mkdir()
+
+    async def scenario(app, pilot):
+        await pilot.press("n")
+        app.screen.query_one("#ns-dir", Input).value = str(work) + "/"
+        await pilot.pause(0.3)
+        box = app.screen.query_one("#ns-prompt", TextArea)
+        assert app.screen.query_one("#ns-main").display and not box.display          # folders are shown, the editor is hidden
+        assert "writes it" in str(app.screen.query_one("#ns-prompt-line", Static).render())
+
+        await pilot.press("ctrl+f")
+        await pilot.pause(0.3)
+        assert not app.screen.query_one("#ns-main").display and box.display and box.has_focus   # the editor took the place
+        assert "Start" in str(app.screen.query_one("#ns-hints", Static).render())
+        await pilot.press(*"first line", "enter", *"second line")                    # Enter is a new line here
+        assert box.text == "first line\nsecond line"
+        table = app.screen.query_one("#ns-list", DataTable)
+        row = table.cursor_row
+        await pilot.press("up", "down", "down")                                      # the arrows move in the text, not in the folder list
+        assert table.cursor_row == row
+
+        await pilot.press("ctrl+f")                                                  # back to the folders, the text is kept
+        await pilot.pause(0.3)
+        assert app.screen.query_one("#ns-main").display and not box.display
+        line = str(app.screen.query_one("#ns-prompt-line", Static).render())
+        assert "first line" in line and "+1 more line" in line
+        assert "Open folder" in str(app.screen.query_one("#ns-hints", Static).render())
+
+        await pilot.press("ctrl+f", "ctrl+e")                                        # start from the editor
+        await pilot.pause(1.0)
+        assert not isinstance(app.screen, NewSession)
+
+    run(scenario, _store(tmp_path))
+    assert calls["interactive"] == [(str(work), ["first line\nsecond line"])]

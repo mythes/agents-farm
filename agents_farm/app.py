@@ -17,7 +17,7 @@ from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.screen import ModalScreen
-from textual.widgets import Collapsible, DataTable, Footer, Input, Static
+from textual.widgets import Collapsible, DataTable, Footer, Input, Static, TextArea
 
 from .model import STATUS_ORDER, Agent, Snapshot, Status
 from . import killer, picker, runner
@@ -218,6 +218,7 @@ class NewSession(ModalScreen):
         Binding("ctrl+d", "worktree", "Worktree", priority=True),
         Binding("ctrl+b", "background", "Background", priority=True),
         Binding("ctrl+f", "prompt", "Prompt", priority=True),
+        Binding("ctrl+e", "start", "Start", priority=True),
         Binding("escape", "cancel", "Cancel"),
     ]
 
@@ -228,6 +229,7 @@ class NewSession(ModalScreen):
         self._recents = picker.recent_dirs(agents)
         self.opts = dict(opts)
         self._rows: List[picker.Row] = []
+        self._prompt_mode = False       # True: the prompt editor takes the place of the folder list
 
     def compose(self) -> ComposeResult:
         with Vertical(id="new-body"):
@@ -235,7 +237,8 @@ class NewSession(ModalScreen):
             with Horizontal(id="ns-main"):
                 yield DataTable(id="ns-list", cursor_type="row", show_header=False, zebra_stripes=False)
                 yield Static(id="ns-preview")
-            yield Input(id="ns-prompt", compact=True, placeholder="first prompt (optional) · ctrl+f switches here and back")
+            yield Static(id="ns-prompt-line")
+            yield TextArea(id="ns-prompt", soft_wrap=True, show_line_numbers=False, tab_behavior="indent")
             yield Static(id="ns-opts")
             yield Static(id="ns-info")
             yield Static(id="ns-warn")
@@ -250,6 +253,8 @@ class NewSession(ModalScreen):
         table.add_column("name", key="name")
         table.add_column("meta", key="meta")
         self.query_one("#ns-preview").border_title = "PREVIEW"
+        self.query_one("#ns-prompt", TextArea).border_title = "FIRST PROMPT  (Enter: new line)"
+        self._show_prompt_line()
         field = self.query_one("#ns-dir", Input)
         field.focus()
         field.action_end()
@@ -258,10 +263,12 @@ class NewSession(ModalScreen):
         self._apply_size(self.size.width)
 
     @staticmethod
-    def _hints() -> Text:
+    def _hints(prompt_mode: bool = False) -> Text:
         """Like the footer, but in a fixed order (the real footer orders keys by how Textual finds them)."""
         t = Text(no_wrap=True, overflow="ellipsis")
-        for key, label in (("tab", "Open folder"), ("^a", "Model"), ("^s", "Mode"), ("^d", "Worktree"), ("^b", "Background"), ("^f", "Prompt"), ("esc", "Cancel")):
+        first = (("^e", "Start"), ("^f", "Folders")) if prompt_mode else (("tab", "Open folder"),)
+        last = () if prompt_mode else (("^f", "Prompt"),)
+        for key, label in first + (("^a", "Model"), ("^s", "Mode"), ("^d", "Worktree"), ("^b", "Background")) + last + (("esc", "Cancel"),):
             t.append(f" {key} ", style="bold #ffaf00")
             t.append(f"{label} ")
         return t
@@ -315,6 +322,9 @@ class NewSession(ModalScreen):
         table.action_cursor_down() if step > 0 else table.action_cursor_up()
 
     def check_action(self, action: str, parameters) -> Optional[bool]:
+        # In the prompt editor the arrows, Tab and → belong to the text, not to the folder list.
+        if self._prompt_mode and action in ("move", "descend", "descend_right"):
+            return False
         # → opens a folder only when the text cursor is at the end. Otherwise it moves the cursor as usual.
         if action == "descend_right":
             field = self.query_one("#ns-dir", Input)
@@ -394,8 +404,36 @@ class NewSession(ModalScreen):
         self.action_start()
 
     def action_prompt(self) -> None:
-        box = self.query_one("#ns-prompt", Input)
-        (self.query_one("#ns-dir", Input) if box.has_focus else box).focus()
+        """Ctrl+F: the prompt editor takes the whole folder area, and again to go back to the folders."""
+        self._prompt_mode = not self._prompt_mode
+        self.query_one("#new-body").set_class(self._prompt_mode, "-prompt")
+        self.query_one("#ns-hints", Static).update(self._hints(self._prompt_mode))
+        self.query_one("#new-body").border_subtitle = "ctrl+e: start" if self._prompt_mode else "enter: start in the marked folder"
+        (self.query_one("#ns-prompt", TextArea) if self._prompt_mode else self.query_one("#ns-dir", Input)).focus()
+        self._show_prompt_line()
+
+    @on(TextArea.Changed, "#ns-prompt")
+    def _prompt_changed(self) -> None:
+        self._show_prompt_line()
+
+    def _prompt_text(self) -> str:
+        return self.query_one("#ns-prompt", TextArea).text
+
+    def _show_prompt_line(self) -> None:
+        """One line under the list: what the first prompt is, so it is never forgotten."""
+        text = self._prompt_text().strip()
+        t = Text(no_wrap=True, overflow="ellipsis")
+        if not text:
+            t.append(" first prompt (optional) · ", style="grey58")
+            t.append("ctrl+f", style="bold #ffaf00")
+            t.append(" writes it", style="grey58")
+        else:
+            lines = text.splitlines()
+            t.append(" prompt: ", style="bold")
+            t.append(lines[0][:80] + ("…" if len(lines[0]) > 80 else ""))
+            if len(lines) > 1:
+                t.append(f"  (+{len(lines) - 1} more line{'s' if len(lines) > 2 else ''})", style="grey58")
+        self.query_one("#ns-prompt-line", Static).update(t)
 
     def action_start(self) -> None:
         row = self._current()
@@ -403,19 +441,19 @@ class NewSession(ModalScreen):
             if self.query_one("#ns-dir", Input).has_focus:
                 self.action_descend()
             else:
-                self.query_one("#ns-error", Static).update(Text("the marked row is ..: mark a folder (ctrl+f goes back to the path)", style="bold red"))
+                self.query_one("#ns-error", Static).update(Text("the marked row is ..: mark a folder (ctrl+f goes back to the folders)", style="bold red"))
             return
         try:
             if not row:
                 raise runner.RunError("no folder to start in: type a path, or clear the field to see recent projects")
             folder = runner.check_dir(row.path)
-            runner.check_prompt(self.query_one("#ns-prompt", Input).value)
+            runner.check_prompt(self._prompt_text())
         except runner.RunError as exc:
             self.query_one("#ns-error", Static).update(Text(str(exc), style="bold red"))
             return
         self.dismiss({"cwd": folder, "model": self.opts["model"], "mode": self.opts["mode"],
                       "worktree": self.opts["worktree"], "background": self.opts["background"],
-                      "prompt": self.query_one("#ns-prompt", Input).value})
+                      "prompt": self._prompt_text()})
 
     def action_cancel(self) -> None:
         self.dismiss(None)
@@ -449,6 +487,11 @@ class FarmApp(App):
     #new-body { width: 92%; max-width: 110; height: 90%; max-height: 30; border: round $primary; border-title-color: $text; background: $surface; padding: 0 1; }
     #new-body Input, #mp-body Input { border: none; height: 1; padding: 0 1; background: $panel; margin-bottom: 1; }
     #ns-main { height: 1fr; }
+    #ns-prompt { display: none; height: 1fr; border: round $primary; border-title-color: $text; background: $surface; }
+    #ns-prompt-line { height: 1; background: $panel; }
+    #new-body.-prompt #ns-main { display: none; }
+    #new-body.-prompt #ns-prompt-line { display: none; }
+    #new-body.-prompt #ns-prompt { display: block; }
     #ns-list { width: 1fr; height: 1fr; border: round $primary 40%; border-title-color: $text; background: $surface; }
     #ns-preview { width: 45%; height: 1fr; border: round $secondary 40%; border-title-color: $text; padding: 0 1; }
     #new-body.-narrow #ns-preview { display: none; }
