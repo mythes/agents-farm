@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import shlex
+import signal
 import subprocess  # nosec B404
 import tempfile
 from typing import Dict, List, Optional, Set, Tuple
@@ -19,6 +20,7 @@ from textual.screen import ModalScreen
 from textual.widgets import Collapsible, DataTable, Footer, Input, Static
 
 from .model import STATUS_ORDER, Agent, Snapshot, Status
+from . import killer
 from . import render as R
 from .search import Query
 
@@ -33,6 +35,7 @@ HELP = [
     ("h", "show / hide idle sessions and finished subagents"),
     ("y", "copy `claude --resume` command for the agent"),
     ("p", "copy the PID of the agent's process"),
+    ("x", "stop the agent's process (asks first; the default answer is No)"),
     ("o", "open the agent's full log in $PAGER"),
     ("r", "refresh now"),
     ("?", "this help"),
@@ -61,6 +64,33 @@ class HelpScreen(ModalScreen):
         self.dismiss()
 
 
+class ConfirmKill(ModalScreen[bool]):
+    """Asks before a signal is sent. Only `y` confirms: Enter, n and Esc all cancel."""
+
+    BINDINGS = [Binding("y", "confirm", "Yes"), Binding("n,escape,enter", "cancel", "No")]
+
+    def __init__(self, question: str, details: List[Tuple[str, str]], yes_label: str):
+        super().__init__()
+        self._question, self._details, self._yes_label = question, details, yes_label
+
+    def compose(self) -> ComposeResult:
+        t = Text()
+        t.append(self._question + "\n\n", style="bold")
+        for style, line in self._details:
+            t.append(line + "\n", style=style)
+        t.append("\n  y ", style="bold black on red")
+        t.append(f" {self._yes_label}      ")
+        t.append(" n ", style="bold black on green")
+        t.append(" cancel (also Esc or Enter)", style="")
+        yield Static(t, id="kill-body")
+
+    def action_confirm(self) -> None:
+        self.dismiss(True)
+
+    def action_cancel(self) -> None:
+        self.dismiss(False)
+
+
 class FarmApp(App):
     TITLE = "agents-farm"
     CSS = """
@@ -83,7 +113,8 @@ class FarmApp(App):
     Screen.-narrow #left { width: 1fr; }
     Screen.-zoom #left { display: none; }
     Screen.-zoom #detail { display: block; }
-    HelpScreen { align: center middle; }
+    HelpScreen, ConfirmKill { align: center middle; }
+    #kill-body { width: 82; height: auto; padding: 1 2; border: round $error; background: $panel; }
     #help-body { width: 78; height: auto; padding: 1 2; border: round $primary; background: $panel; }
     """
 
@@ -100,6 +131,7 @@ class FarmApp(App):
         Binding("h", "toggle_idle", "Idle"),
         Binding("y", "copy_resume", "Copy resume"),
         Binding("p", "copy_pid", "Copy PID", show=False),
+        Binding("x", "kill", "Stop process", show=False),
         Binding("o", "open_log", "Log"),
         Binding("r", "refresh_now", "Refresh", show=False),
         Binding("question_mark", "help", "Help"),
@@ -430,6 +462,70 @@ class FarmApp(App):
             return
         self.copy_to_clipboard(str(a.pid))
         self.notify(f"pid {a.pid}", title="copied", timeout=3, markup=False)
+
+    # ------------------------------------------------------------- stop a process
+
+    def _sessions_dir(self) -> Optional[str]:
+        return getattr(getattr(self.store, "registry", None), "root", None)
+
+    def action_kill(self) -> None:
+        """x: ask first, then SIGTERM. The checks that make it safe are in killer.py."""
+        a = self._selected()
+        if not a:
+            return
+        if not getattr(self.store, "cfg", {}).get("allow_kill", True):
+            self.notify("stopping processes is turned off (allow_kill in the config)", timeout=4, markup=False)
+            return
+        if a.parent:
+            self.notify("a subagent has no process of its own: select its parent session", timeout=4, markup=False)
+            return
+        if not a.pid:
+            self.notify("no running process for this agent", timeout=3, markup=False)
+            return
+        state = a.live_status or {Status.WAITING: "waiting", Status.RUNNING: "busy", Status.THINKING: "busy"}.get(a.status, "")
+        target = killer.Target(pid=a.pid, session_id=a.session_id, name=a.name, entrypoint=a.entrypoint, status=state)
+        label = R.entry_label(a.entrypoint)
+        details: List[Tuple[str, str]] = [
+            ("bold", "  " + a.name.replace("\n", " ")[:70]),
+            ("grey70", f"  pid {a.pid} · {label}" + (f" · {state}" if state else "")),
+            ("", ""),
+        ] + [("" if not style else style, "  " + text) for style, text in killer.warnings(a.entrypoint, state, a.session_id)]
+        self.push_screen(
+            ConfirmKill("Stop this agent's process?", details, "stop it (SIGTERM)"),
+            lambda ok: self._confirmed(target, signal.SIGTERM) if ok else None,
+        )
+
+    def _confirmed(self, target, sig) -> None:
+        if self.snap and self.snap.source == "demo":
+            self.notify("demo mode: no signal was sent", timeout=4, markup=False)
+            return
+        self._send_signal(target, sig)
+
+    @work(thread=True, exclusive=True, group="kill")
+    def _send_signal(self, target, sig) -> None:
+        wait = killer.TERM_WAIT_S if sig == signal.SIGTERM else killer.KILL_WAIT_S
+        try:
+            gone = killer.kill(target, sig, self._sessions_dir(), wait_s=wait)
+        except killer.KillError as exc:
+            self.call_from_thread(self.notify, f"not stopped: {exc}", title=f"pid {target.pid}", severity="error", timeout=8, markup=False)
+            return
+        self.call_from_thread(self._signal_done, target, sig, gone)
+
+    def _signal_done(self, target, sig, gone: bool) -> None:
+        self.refresh_data()
+        if gone:
+            self.notify(f"pid {target.pid} has stopped", title=killer.SIGNAL_NAMES[sig], timeout=5, markup=False)
+        elif sig == signal.SIGTERM:
+            self.push_screen(
+                ConfirmKill(
+                    f"pid {target.pid} did not stop within {killer.TERM_WAIT_S:.0f} seconds",
+                    [("", "  SIGKILL cannot be caught: the process gets no chance to save or clean up anything.")],
+                    "send SIGKILL",
+                ),
+                lambda ok: self._send_signal(target, signal.SIGKILL) if ok else None,
+            )
+        else:
+            self.notify(f"pid {target.pid} is still running after SIGKILL", severity="error", timeout=8, markup=False)
 
     def action_open_log(self) -> None:
         a = self._selected()

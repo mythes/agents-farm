@@ -9,6 +9,7 @@ import os
 HOME_DIR = os.path.expanduser(os.environ.get("AGENTS_FARM_HOME", "~/.agents-farm"))
 CONFIG_PATH = os.path.join(HOME_DIR, "config.json")
 EVENTS_PATH = os.path.join(HOME_DIR, "events.jsonl")
+ACTIONS_LOG = os.path.join(HOME_DIR, "actions.log")
 CLAUDE_PROJECTS = os.path.expanduser(os.environ.get("CLAUDE_PROJECTS_DIR", "~/.claude/projects"))
 CLAUDE_SESSIONS = os.path.expanduser(os.environ.get("CLAUDE_SESSIONS_DIR", "~/.claude/sessions"))
 
@@ -37,6 +38,8 @@ DEFAULTS = {
     "busy_stalled_s": 600,
     "done_visible_min": 30,
     "notify": True,
+    # The x key (stop an agent's process) always asks first. Set to false to turn it off.
+    "allow_kill": True,
 }
 
 

@@ -81,9 +81,22 @@ agents-farm status --json
 | `h` | Show or hide idle sessions and finished subagents |
 | `y` | Copy `cd … && claude --resume <id>` (works over SSH too) |
 | `p` | Copy the PID of the agent's process |
+| `x` | Stop the agent's process. It asks first, and the default answer is No |
 | `o` | Open the full log in `$PAGER` |
 | `?` | Help |
 | `q` | Quit |
+
+## Stopping an agent
+
+Select an agent and press `x`. A dialog shows the name, the PID, and what will happen. Only `y` confirms: `n`, `Esc` and `Enter` all cancel. Then agents-farm sends `SIGTERM` (a normal stop). If the process is still running after 3 seconds, it asks again before it sends `SIGKILL`.
+
+- **Claude Desktop.** Desktop starts a new process for the chat when you send the next message, and the history is kept. If the agent is working (`busy`) or waits for you, the current turn or the question is lost, and the dialog says so in red.
+- **CLI.** The claude session in its terminal ends. The dialog shows the `claude --resume <id>` command to continue it.
+- **Subagents** have no process of their own: select the parent session. Sessions that are not running cannot be stopped.
+
+Before every signal the process is checked again, and the stop is **refused** if the PID now belongs to another program (a reused PID), to another user, or to a process that is not `claude` (for example the Desktop wrapper). It is also refused for agents-farm itself and its parent processes, so it can never close your own terminal. Every attempt, also a refused one, is written to `~/.agents-farm/actions.log` (readable only by you). In `--demo` mode no signal is ever sent.
+
+To turn the key off, set `"allow_kill": false` in the config.
 
 ## Where the data comes from
 
@@ -123,6 +136,7 @@ All keys are optional. The file is `~/.agents-farm/config.json`:
   "since_hours": 12,
   "notify": true,
   "busy_stalled_s": 600,
+  "allow_kill": true,
   "context_window": {"default": 200000, "opus-5": 1000000, "sonnet-5": 1000000}
 }
 ```

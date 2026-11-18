@@ -16,6 +16,7 @@ Everything read from transcripts and hook payloads is **untrusted**. It can cont
 | Textual or Rich markup injection (`[@click=…]`, `[link=…]`) in titles and toasts | `notify(..., markup=False)` and `escape()` for border titles. Table and detail cells are `rich.Text`, never parsed as markup |
 | Shell injection through the copied `claude --resume` command | The session id and the working directory are quoted with `shlex.quote` |
 | A fake or broken process file in `~/.claude/sessions` | Files are validated (the file name must match the pid, the session id has a strict pattern, size is limited), text is cleaned, and a PID counts only if the process start time matches the file. A reused PID is rejected |
+| Stopping the wrong process with the `x` key (a reused PID, a parent process, another user's process, the Desktop wrapper) | The key always asks first, and only `y` confirms. Before each signal the target is checked again: the pid file names the same session, the process start time matches the file, the process belongs to you, it is `claude` and not `disclaimer`, and it is not agents-farm or one of its parents. Only SIGTERM and SIGKILL are used, arguments are never passed through a shell, and every attempt is logged in `~/.agents-farm/actions.log` (`0600`) |
 | A hook event that points the reader to any file | A transcript path from a hook must resolve (symlinks too) inside `~/.claude/projects` and end with `.jsonl` |
 | Event log readable by other local users | Directory `0700`, file `0600`, fields have a maximum length |
 | A hook that breaks the agent | The handler swallows all errors, always exits with 0, and has a 5-second timeout |
@@ -27,6 +28,8 @@ Everything read from transcripts and hook payloads is **untrusted**. It can cont
 - `~/.agents-farm/events.jsonl` only grows and is not rotated. Delete it from time to time.
 - The `o` log writes prompt text to a temporary file for a short time (owner only, deleted on exit).
 - Anyone who can already write to your home directory can send fake events. They can only change statuses. There is no way to run code.
+- The `x` key sends a signal only to a process that matches its pid file. It cannot protect you from stopping a session whose work you wanted to keep: that is what the confirmation and the red warning are for.
+- `~/.agents-farm/actions.log` only grows and is not rotated.
 - Usage limits are estimates, not data from Anthropic.
 
 ## Automated checks
