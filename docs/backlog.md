@@ -49,6 +49,16 @@ Checked on a real machine with Claude Code 2.1.319 / 2.1.325. These facts change
     - So a pid is not stable for a Desktop session: always join by session id (T0 does).
     - Not tested: killing a session that is `busy` or `waiting`. The current turn would be lost.
 
+14. **S5 result (2026-11-18): Claude Code 2.1.327 has its own background sessions, and they fit `af` well.** Checked with one real `claude --bg` session (haiku, `plan` mode, read-only task in a trusted folder), stopped afterwards.
+    - Commands: `claude --bg "<prompt>"` (prints a short id), `claude attach <id>`, `claude logs <id>`, `claude stop <id>`, `claude rm <id>`, `claude respawn`, `claude agents` (its own screen) and `claude agents --json` (a list of active sessions). `claude --bg --resume <session-id>` continues the session in the background under the same id, or starts a copy and says so when it is already running.
+    - A background session gets a normal pid file in `~/.claude/sessions` (`kind: "bg"`, `entrypoint: "cli"`, `status`, a `jobId`), and its transcript is in the usual place, named by the session id. **The current `af` showed it with no code change** (status `done`, pid, CLI). The short id from `agents --json` is the first 8 characters of the session id. `agents --json` has a `state` (`working`, `done`, `blocked`) that is not the same as the pid file `status`.
+    - A background session only starts in a folder you already trusted ("Workspace not trusted" otherwise). We must not accept trust for the user: show the message.
+    - `attach` shows the live screen of the session. **Ctrl+Z ends the `attach` process with exit code 0 and the session keeps running** (so `af` gets the terminal back, no `/exit` needed). The left arrow does not leave `attach`: it opens the agent view inside the same process.
+    - A prompt typed in `attach` while the session is busy reaches the model in the same turn (the answer to a long task contained the line asked for in the second prompt).
+    - `claude logs` prints the raw terminal stream with escape codes: it needs cleaning before it can be shown.
+    - `claude stop` ended the process, removed the pid file and the entry in `agents --json`. The conversation stays in the transcript.
+    - Not tested: a `blocked` session being answered from `attach`, `respawn`, `rm` with a worktree, and iTerm2 / Terminal.app.
+
 ---
 
 ## Milestones
@@ -70,6 +80,7 @@ Checked on a real machine with Claude Code 2.1.319 / 2.1.325. These facts change
 | **S2** | Which values can `status` in `sessions/<pid>.json` have? (We saw only `idle` and `busy`.) Is there a `waiting` for a permission request? | Log changes of `status` / `statusUpdatedAt` for some hours and during a permission request | T0: can we replace hooks with the live status? **Result: done. `waiting` exists and comes before the hooks (finding 11).** |
 | **S3** | Does `App.suspend()` + `claude` return the terminal to the TUI in a clean state on macOS (iTerm2, Terminal.app)? | Run `claude` by hand, exit, and check the cursor, mouse mode and colours. The `o` key (pager) is also not tested by hand yet | T3, T4 **Result: works in the Claude app terminal (finding 12). iTerm2 and Terminal.app not tested.** |
 | **S4** | What happens in Desktop when we kill its `claude` process? | Kill a **throwaway** Desktop session (never a working one) | The warning text in T2 **Result: done. Safe when idle, Desktop restarts the process on the next message (finding 13).** |
+| **S5** | Can `af` use Claude Code's own background sessions (`--bg`, `attach`) to leave a session without `/exit` and to type a prompt while it works? | Start one cheap read-only `--bg` session, attach through a pty, try Ctrl+Z and the left arrow, type a second prompt while it is busy, then stop it | T9, T4 **Result: yes (finding 14).** |
 
 ---
 
@@ -192,6 +203,24 @@ Checked on a real machine with Claude Code 2.1.319 / 2.1.325. These facts change
 
 ---
 
+### T9 · Background sessions: start, attach, stop · M
+
+**Possible:** ✅ (S5, finding 14). Uses the official commands only (`claude --bg`, `attach`, `stop`, `agents --json`), no keystroke injection and no tmux.
+
+**Plan**
+- In the `n` dialog add a toggle `Ctrl+B`: "run in the background". It starts `claude --bg ...` with the same model, mode and folder checks. `af` stays on screen and selects the new session (found by its short id, the first 8 characters of the session id).
+- A folder that is not trusted gives the message from `claude` ("Workspace not trusted"), never an automatic "yes".
+- The list marks background sessions (`kind: "bg"` in the pid file) with a small sign. State from `claude agents --json` (`working`, `done`, `blocked`) is shown as `? waiting` for `blocked`.
+- `Enter` on a background session (key `a`) runs `claude attach <id>` inside `App.suspend()`. The user leaves with **Ctrl+Z** (the process ends with code 0 and the session keeps running) and lands back in `af`. The hint is shown in the dialog before attach.
+- `x` on a background session uses `claude stop <id>` (the official way) instead of a signal, with the same confirmation.
+- `claude rm` is not offered (it can delete a worktree).
+- Warn when the mode is `default`: a background session stops at its first permission request (`blocked`) until someone attaches. Suggest `acceptEdits` or `plan`.
+- Show a clean "terminal output" block in zoom from `claude logs <id>` only after removing escape codes (optional, later).
+- Sessions that are not background (CLI in another terminal, Desktop) stay view-only, with `x` and copy-resume as today.
+
+**Done when:** a background session can be started, shown, attached with Ctrl+Z back to `af`, and stopped from `af`; tests use a fake `claude`; the docs say that background sessions use your limits while you are not looking.
+**Risks:** Ctrl+Z behaviour inside iTerm2 and Terminal.app (S3 list); `claude` command names can change between versions (check `claude --help` and fail softly).
+
 ## M3
 
 ### T6 · Limit monitoring: real data from statusLine · L
@@ -243,6 +272,6 @@ Checked on a real machine with Claude Code 2.1.319 / 2.1.325. These facts change
 
 ## Order of work
 
-`S1–S4` → `T0` → `T1` + `T5` → `T8` → `T2` → `T3` → `T4` → `T6` → `T7a` → `T7b`
+`S1–S4` → `T0` → `T1` + `T5` → `T8` → `T2` → `T3` → `T9` → `T4` → `T6` → `T7a` → `T7b`
 
 The biggest unknown is **S1** (does statusLine run in Desktop sessions?). It decides how exact the limits will be for the main use case. So check it before T6, and best of all first.

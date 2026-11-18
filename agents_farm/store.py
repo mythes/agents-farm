@@ -115,6 +115,16 @@ class Store:
                 continue
             agents.append(self._copy(a))
 
+        # A running session that has no transcript yet (a new background session waits for its
+        # first prompt) is still listed: the pid file is enough to show it.
+        known = {a.id for a in agents}
+        for sess in live.values():
+            if sess.session_id not in known and sess.verified:
+                placeholder = self._placeholder(sess, now)
+                self._derive(placeholder, now)
+                agents.append(placeholder)
+                known.add(sess.session_id)
+
         limits = compute_limits(usage, self.cfg, now)
         return Snapshot(
             agents=agents,
@@ -133,8 +143,17 @@ class Store:
         a.pid = sess.pid if sess else None
         a.entrypoint = sess.entrypoint if sess else ""
         a.live_status = sess.status if sess else ""
+        a.background = bool(sess and sess.kind == "bg")
         a.client_version = sess.version if sess else ""
         a.pid_verified = bool(sess and sess.verified)
+
+    def _placeholder(self, sess: LiveSession, now) -> Agent:
+        """An agent made from a pid file alone (no transcript yet)."""
+        started = sess.started_at or now
+        a = Agent(id=sess.session_id, transcript="", project=os.path.basename(sess.cwd.rstrip("/")) if sess.cwd else "",
+                  cwd=sess.cwd, title=sess.name, started=started, last_activity=started, from_pid_file=True)
+        self._attach_live(a, sess, True)
+        return a
 
     @staticmethod
     def _copy(a: Agent) -> Agent:
@@ -172,6 +191,8 @@ class Store:
         # idle: the process waits for the next prompt. A failed turn stays visible.
         if st == Status.ERROR:
             return st, note
+        if a.from_pid_file:
+            return Status.DONE, "no prompt yet: press a to attach and type one"
         return Status.DONE, ""
 
     def _derive(self, a: Agent, now) -> None:
@@ -207,7 +228,7 @@ class Store:
             if hst is not None:
                 st, note = hst, hnote or note
 
-        if st == Status.DONE and age > float(cfg["done_visible_min"]) * 60:
+        if st == Status.DONE and not a.from_pid_file and age > float(cfg["done_visible_min"]) * 60:
             st = Status.IDLE
         if known is None and st in (Status.STALLED, Status.WAITING) and age > 6 * 3600:
             st, note = Status.IDLE, ""

@@ -193,6 +193,8 @@ def detail_header(a: Agent, now: datetime, warn: float, crit: float, windows=Non
         if a.pid:
             t.append(f"pid {a.pid}", style="bold")
             t.append(f" · {entry_label(a.entrypoint)}", style="grey70")
+            if a.background:
+                t.append(" · background", style="bold cyan")
             if a.client_version:
                 t.append(f" · v{a.client_version}", style="grey70")
             if a.live_status:

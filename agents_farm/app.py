@@ -35,8 +35,9 @@ HELP = [
     ("h", "show / hide idle sessions and finished subagents"),
     ("y", "copy `claude --resume` command for the agent"),
     ("p", "copy the PID of the agent's process"),
+    ("a", "attach to a background session (leave it with Ctrl+Z: it keeps running)"),
     ("x", "stop the agent's process (asks first; the default answer is No)"),
-    ("n", "new `claude` session in this terminal: pick a folder, then ctrl+a model, ctrl+s mode, ctrl+d worktree"),
+    ("n", "new `claude` session in this terminal: pick a folder, then ctrl+a model, ctrl+s mode, ctrl+d worktree, ctrl+b background, ctrl+f first prompt"),
     ("o", "open the agent's full log in $PAGER"),
     ("r", "refresh now"),
     ("?", "this help"),
@@ -167,6 +168,38 @@ class ModelPicker(ModalScreen):
         self.dismiss(None)
 
 
+class AttachHint(ModalScreen[bool]):
+    """Says how to come back before the terminal is handed over. Enter or y attaches."""
+
+    BINDINGS = [Binding("y,enter", "confirm", "Attach"), Binding("n,escape", "cancel", "Cancel")]
+
+    def __init__(self, name: str, pid: int):
+        super().__init__()
+        self._name, self._pid = name, pid
+
+    def compose(self) -> ComposeResult:
+        t = Text()
+        t.append("Attach to this background session?\n\n", style="bold")
+        t.append(f"  {self._name}\n", style="bold")
+        t.append(f"  pid {self._pid} · background\n\n", style="grey70")
+        t.append("  The session opens in this terminal and you can type to it, also while it works.\n")
+        t.append("  To come back here, press ", style="")
+        t.append("Ctrl+Z", style="bold cyan")
+        t.append(": the session keeps running.\n")
+        t.append("  Do not use /exit: that ends the session.\n", style="yellow")
+        t.append("\n  enter ", style="bold black on green")
+        t.append(" attach      ")
+        t.append(" esc ", style="bold black on grey70")
+        t.append(" cancel")
+        yield Static(t, id="attach-body")
+
+    def action_confirm(self) -> None:
+        self.dismiss(True)
+
+    def action_cancel(self) -> None:
+        self.dismiss(False)
+
+
 class NewSession(ModalScreen):
     """Where and how to start `claude`. Dismisses with a dict, or None when cancelled.
 
@@ -183,6 +216,8 @@ class NewSession(ModalScreen):
         Binding("ctrl+a", "model", "Model", priority=True),
         Binding("ctrl+s", "mode", "Mode", priority=True),
         Binding("ctrl+d", "worktree", "Worktree", priority=True),
+        Binding("ctrl+b", "background", "Background", priority=True),
+        Binding("ctrl+f", "prompt", "Prompt", priority=True),
         Binding("escape", "cancel", "Cancel"),
     ]
 
@@ -200,7 +235,9 @@ class NewSession(ModalScreen):
             with Horizontal(id="ns-main"):
                 yield DataTable(id="ns-list", cursor_type="row", show_header=False, zebra_stripes=False)
                 yield Static(id="ns-preview")
+            yield Input(id="ns-prompt", compact=True, placeholder="first prompt (optional) · ctrl+f switches here and back")
             yield Static(id="ns-opts")
+            yield Static(id="ns-warn")
             yield Static(id="ns-error")
             yield Static(self._hints(), id="ns-hints")
 
@@ -223,7 +260,7 @@ class NewSession(ModalScreen):
     def _hints() -> Text:
         """Like the footer, but in a fixed order (the real footer orders keys by how Textual finds them)."""
         t = Text(no_wrap=True, overflow="ellipsis")
-        for key, label in (("tab", "Open folder"), ("^a", "Model"), ("^s", "Mode"), ("^d", "Worktree"), ("esc", "Cancel")):
+        for key, label in (("tab", "Open folder"), ("^a", "Model"), ("^s", "Mode"), ("^d", "Worktree"), ("^b", "Background"), ("^f", "Prompt"), ("esc", "Cancel")):
             t.append(f" {key} ", style="bold #ffaf00")
             t.append(f"{label} ")
         return t
@@ -280,7 +317,7 @@ class NewSession(ModalScreen):
         # → opens a folder only when the text cursor is at the end. Otherwise it moves the cursor as usual.
         if action == "descend_right":
             field = self.query_one("#ns-dir", Input)
-            return field.cursor_position >= len(field.value)
+            return field.has_focus and field.cursor_position >= len(field.value)
         return True
 
     def action_descend_right(self) -> None:
@@ -288,7 +325,7 @@ class NewSession(ModalScreen):
 
     def action_descend(self) -> None:
         row = self._current()
-        if row and row.kind != "here":
+        if row and row.kind != "here" and self.query_one("#ns-dir", Input).has_focus:
             field = self.query_one("#ns-dir", Input)
             field.value = picker.descend_text(row)
             field.action_end()
@@ -304,7 +341,13 @@ class NewSession(ModalScreen):
         t.append(o["mode"], style="bold")
         t.append("   worktree ", style="grey58")
         t.append("on" if o["worktree"] else "off", style="bold green" if o["worktree"] else "bold")
+        t.append("   background ", style="grey58")
+        t.append("on" if o["background"] else "off", style="bold cyan" if o["background"] else "bold")
         self.query_one("#ns-opts", Static).update(t)
+        warn = ""
+        if o["background"] and o["mode"] == "default":
+            warn = "  A background session in default mode stops at its first permission request. Use ctrl+s for acceptEdits or plan."
+        self.query_one("#ns-warn", Static).update(Text(warn, style="yellow"))
 
     def action_model(self) -> None:
         choices = picker.known_models(self._agents, self._extra)
@@ -324,25 +367,39 @@ class NewSession(ModalScreen):
         self.opts["worktree"] = not self.opts["worktree"]
         self._show_opts()
 
+    def action_background(self) -> None:
+        self.opts["background"] = not self.opts["background"]
+        self._show_opts()
+
     # --------------------------------------------------------------- finish
 
-    @on(Input.Submitted, "#ns-dir")
+    @on(Input.Submitted)
     def _submit(self) -> None:
         self.action_start()
+
+    def action_prompt(self) -> None:
+        box = self.query_one("#ns-prompt", Input)
+        (self.query_one("#ns-dir", Input) if box.has_focus else box).focus()
 
     def action_start(self) -> None:
         row = self._current()
         if row and row.kind == "up":        # ".." goes up, it never starts anything
-            self.action_descend()
+            if self.query_one("#ns-dir", Input).has_focus:
+                self.action_descend()
+            else:
+                self.query_one("#ns-error", Static).update(Text("the marked row is ..: mark a folder (ctrl+f goes back to the path)", style="bold red"))
             return
         try:
             if not row:
                 raise runner.RunError("no folder to start in: type a path, or clear the field to see recent projects")
             folder = runner.check_dir(row.path)
+            runner.check_prompt(self.query_one("#ns-prompt", Input).value)
         except runner.RunError as exc:
             self.query_one("#ns-error", Static).update(Text(str(exc), style="bold red"))
             return
-        self.dismiss({"cwd": folder, "model": self.opts["model"], "mode": self.opts["mode"], "worktree": self.opts["worktree"]})
+        self.dismiss({"cwd": folder, "model": self.opts["model"], "mode": self.opts["mode"],
+                      "worktree": self.opts["worktree"], "background": self.opts["background"],
+                      "prompt": self.query_one("#ns-prompt", Input).value})
 
     def action_cancel(self) -> None:
         self.dismiss(None)
@@ -370,7 +427,8 @@ class FarmApp(App):
     Screen.-narrow #left { width: 1fr; }
     Screen.-zoom #left { display: none; }
     Screen.-zoom #detail { display: block; }
-    HelpScreen, ConfirmKill, NewSession { align: center middle; }
+    HelpScreen, ConfirmKill, NewSession, AttachHint { align: center middle; }
+    #attach-body { width: 82; height: auto; padding: 1 2; border: round $success; background: $panel; }
     ModelPicker { align: center middle; }
     #new-body { width: 92%; max-width: 110; height: 90%; max-height: 30; border: round $primary; border-title-color: $text; background: $surface; padding: 0 1; }
     #new-body Input, #mp-body Input { border: none; height: 1; padding: 0 1; background: $panel; margin-bottom: 1; }
@@ -379,7 +437,7 @@ class FarmApp(App):
     #ns-preview { width: 45%; height: 1fr; border: round $secondary 40%; border-title-color: $text; padding: 0 1; }
     #new-body.-narrow #ns-preview { display: none; }
     #ns-opts { height: 1; background: $panel; }
-    #ns-error { height: auto; }
+    #ns-error, #ns-warn { height: auto; }
     #ns-hints { height: 1; background: $panel; }
     #mp-body { width: 70; max-width: 95%; height: auto; max-height: 24; border: round $primary; border-title-color: $text; background: $surface; padding: 0 1; }
     #mp-list { height: auto; max-height: 14; background: $surface; }
@@ -401,9 +459,10 @@ class FarmApp(App):
         Binding("e", "expand_all", "Expand"),
         Binding("h", "toggle_idle", "Idle"),
         Binding("y", "copy_resume", "Copy resume"),
-        Binding("p", "copy_pid", "Copy PID", show=False),
-        Binding("x", "kill", "Stop process", show=False),
         Binding("n", "new_session", "New session"),
+        Binding("a", "attach", "Attach"),
+        Binding("x", "kill", "Stop"),
+        Binding("p", "copy_pid", "Copy PID", show=False),
         Binding("o", "open_log", "Log"),
         Binding("r", "refresh_now", "Refresh", show=False),
         Binding("question_mark", "help", "Help"),
@@ -762,6 +821,18 @@ class FarmApp(App):
             self.notify("no running process for this agent", timeout=3, markup=False)
             return
         state = a.live_status or {Status.WAITING: "waiting", Status.RUNNING: "busy", Status.THINKING: "busy"}.get(a.status, "")
+        if a.background:                      # the official command ends it, we send no signal
+            lines: List[Tuple[str, str]] = [
+                ("bold", "  " + a.name.replace("\n", " ")[:70]),
+                ("grey70", f"  pid {a.pid} · background" + (f" · {state}" if state else "")),
+                ("", ""),
+                ("", "  `claude stop` ends the session and its process. The history is kept."),
+            ]
+            if state in ("busy", "waiting"):
+                lines.append(("bold red", "  It is working now: the current turn will be lost."))
+            self.push_screen(ConfirmKill("Stop this background session?", lines, "stop it (claude stop)"),
+                             lambda ok: self._stop_background(a) if ok else None)
+            return
         target = killer.Target(pid=a.pid, session_id=a.session_id, name=a.name, entrypoint=a.entrypoint, status=state)
         label = R.entry_label(a.entrypoint)
         details: List[Tuple[str, str]] = [
@@ -821,27 +892,31 @@ class FarmApp(App):
         cwd = (a.cwd if a and a.cwd and os.path.isdir(a.cwd) else "") or os.getcwd()
         cfg = getattr(self.store, "cfg", {})
         if self._new_opts is None:
-            self._new_opts = {"model": str(cfg.get("new_model") or ""), "mode": "default", "worktree": False}
+            self._new_opts = {"model": str(cfg.get("new_model") or ""), "mode": "default", "worktree": False, "background": False}
         extra = [m for m in (cfg.get("models") or []) if isinstance(m, str)]
         self.push_screen(NewSession(cwd, list(self.snap.agents) if self.snap else [], self._new_opts, extra), self._start_session)
 
     def _start_session(self, choice) -> None:
         if not choice:
             return
-        self._new_opts = {k: choice[k] for k in ("model", "mode", "worktree")}      # the next dialog starts with the same choices
+        self._new_opts = {k: choice[k] for k in ("model", "mode", "worktree", "background")}      # the next dialog starts with the same choices
         if self.snap and self.snap.source == "demo":
             self.notify("demo mode: no session was started", timeout=4, markup=False)
             return
         cfg = getattr(self.store, "cfg", {})
         try:
             claude = runner.find_claude(cfg)
-            args = runner.build_args(choice["model"], choice["mode"], choice["worktree"], cfg.get("claude_args"))
+            args = runner.build_args(choice["model"], choice["mode"], choice["worktree"], cfg.get("claude_args"),
+                                     prompt=choice.get("prompt", ""))
             env = runner.build_env(cfg.get("claude_env"))
             cwd = runner.check_dir(choice["cwd"])
         except runner.RunError as exc:
             self.notify(str(exc), title="not started", severity="error", timeout=8, markup=False)
             return
         before = {x.id for x in self.snap.agents} if self.snap else set()
+        if choice.get("background"):
+            self._start_background(cwd, args, claude, env, before)
+            return
         try:
             with self.suspend():
                 code = runner.run_interactive(cwd, args, claude, env)
@@ -853,6 +928,80 @@ class FarmApp(App):
         self.refresh_data()
         if code != 0:
             self.notify(f"claude exited with code {code}", severity="warning", timeout=6, markup=False)
+
+    # ------------------------------------------------------ background sessions
+
+    @work(thread=True, exclusive=True, group="bg-start")
+    def _start_background(self, cwd, args, claude, env, before) -> None:
+        try:
+            sid = runner.start_background(cwd, args, claude, env)
+        except runner.RunError as exc:
+            self.call_from_thread(self.notify, str(exc), title="not started", severity="error", timeout=10, markup=False)
+            return
+        self.call_from_thread(self._background_started, sid, before)
+
+    def _background_started(self, sid: str, before) -> None:
+        self._pick_new = before
+        getattr(self.store, "rediscover", lambda: None)()
+        self.refresh_data()
+        self.notify(f"started in the background ({sid}). Press a to attach, and Ctrl+Z to leave it running.",
+                    title="background session", timeout=8, markup=False)
+
+    def action_attach(self) -> None:
+        """a: open a background session in this terminal. Ctrl+Z leaves it and it keeps running."""
+        a = self._selected()
+        if not a:
+            return
+        if not a.background or not a.pid:
+            self.notify("only a running background session can be attached (start one with n, then ctrl+b)", timeout=5, markup=False)
+            return
+        self.push_screen(AttachHint(a.name.replace("\n", " ")[:70], a.pid), lambda ok: self._attach(a) if ok else None)
+
+    def _attach(self, a: Agent) -> None:
+        if self.snap and self.snap.source == "demo":
+            self.notify("demo mode: nothing was attached", timeout=4, markup=False)
+            return
+        cfg = getattr(self.store, "cfg", {})
+        try:
+            claude = runner.find_claude(cfg)
+            args = runner.attach_args(a.session_id)
+            env = runner.build_env(cfg.get("claude_env"))
+        except runner.RunError as exc:
+            self.notify(str(exc), title="not attached", severity="error", timeout=8, markup=False)
+            return
+        cwd = a.cwd if a.cwd and os.path.isdir(a.cwd) else os.getcwd()
+        try:
+            with self.suspend():
+                code = runner.run_interactive(cwd, args, claude, env)
+        except runner.RunError as exc:
+            self.notify(str(exc), title="not attached", severity="error", timeout=8, markup=False)
+            return
+        self.refresh_data()
+        if code != 0:
+            self.notify(f"claude exited with code {code}", severity="warning", timeout=6, markup=False)
+
+    def _stop_background(self, a: Agent) -> None:
+        if self.snap and self.snap.source == "demo":
+            self.notify("demo mode: nothing was stopped", timeout=4, markup=False)
+            return
+        cfg = getattr(self.store, "cfg", {})
+        try:
+            claude = runner.find_claude(cfg)
+            env = runner.build_env(cfg.get("claude_env"))
+        except runner.RunError as exc:
+            self.notify(str(exc), title="not stopped", severity="error", timeout=8, markup=False)
+            return
+        self._run_stop(a.session_id, a.pid, claude, env)
+
+    @work(thread=True, exclusive=True, group="bg-stop")
+    def _run_stop(self, session_id, pid, claude, env) -> None:
+        try:
+            said = runner.stop_background(session_id, claude, env)
+        except runner.RunError as exc:
+            self.call_from_thread(self.notify, str(exc), title="not stopped", severity="error", timeout=8, markup=False)
+            return
+        self.call_from_thread(self.refresh_data)
+        self.call_from_thread(self.notify, said, title=f"pid {pid}", timeout=5, markup=False)
 
     def action_open_log(self) -> None:
         a = self._selected()

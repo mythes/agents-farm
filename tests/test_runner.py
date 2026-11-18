@@ -23,6 +23,16 @@ def test_build_args_is_a_list_in_a_fixed_order():
     assert runner.build_args("opus", "plan", True, ["--verbose"]) == ["--model", "opus", "--permission-mode", "plan", "--verbose", "-w"]
 
 
+def test_the_first_prompt_goes_first_and_never_looks_like_an_option():
+    assert runner.build_args("opus", "plan", True, ["--verbose"], prompt="fix the tests") == \
+        ["fix the tests", "--model", "opus", "--permission-mode", "plan", "--verbose", "-w"]
+    assert runner.build_args(prompt="--dangerously-skip-permissions") == [" --dangerously-skip-permissions"]   # a space hides the dash
+    assert runner.build_args(prompt="   ") == []
+    for bad in ("x" * 4001, "a\0b"):
+        with pytest.raises(RunError, match="first prompt"):
+            runner.build_args(prompt=bad)
+
+
 @pytest.mark.parametrize("model", ["--dangerously-skip-permissions", "-x", "a b", "a;b", "$(id)", "x" * 80])
 def test_a_model_name_cannot_inject_flags_or_shell(model):
     with pytest.raises(RunError, match="model name"):

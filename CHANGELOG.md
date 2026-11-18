@@ -4,6 +4,9 @@ All notable changes are listed here. The format follows [Keep a Changelog](https
 
 ## [Unreleased]
 
+### Added
+- Background sessions, with Claude Code's own commands. In the `n` dialog `Ctrl+B` starts the session with `claude --bg`, and `af` stays on screen. `a` opens a background session in this terminal (`claude attach`): you can type to it while it works, and **`Ctrl+Z` brings you back** to agents-farm while the session keeps running. `x` on a background session runs `claude stop`. The details show `background`. Sessions that are not in the background stay view-only. A hint is shown before attach, and a warning when a background session uses the `default` permission mode (it stops at its first permission request). The `n` dialog has an optional first prompt (`Ctrl+F` switches to it), for normal and background sessions. A running session with no transcript yet (a new background session waits for its first prompt) is now listed too, built from its pid file.
+
 ## [0.3.0] - 2026-11-18
 
 A better new-session dialog.

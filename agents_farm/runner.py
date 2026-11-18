@@ -14,6 +14,8 @@ import signal
 import subprocess  # nosec B404
 from typing import Dict, List, Optional
 
+from .model import sanitize
+
 # The dialog offers only these. Modes that skip permission checks are not offered.
 PERMISSION_MODES = ("default", "acceptEdits", "plan")
 _MODEL_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:\[\]-]{0,63}$")
@@ -59,10 +61,25 @@ def check_model(model: str) -> str:
     return model
 
 
+MAX_PROMPT = 4000
+
+
+def check_prompt(prompt: str) -> str:
+    """The first prompt, as one argument. It goes first, so `-w` never takes it as a worktree name,
+    and a leading "-" is hidden behind a space so it can never be read as an option."""
+    prompt = (prompt or "").strip()
+    if "\0" in prompt or len(prompt) > MAX_PROMPT:
+        raise RunError(f"the first prompt must be at most {MAX_PROMPT} characters")
+    return (" " + prompt) if prompt.startswith("-") else prompt
+
+
 def build_args(model: str = "", permission_mode: str = "default", worktree: bool = False,
-               extra: Optional[List[str]] = None) -> List[str]:
-    """The argument list for `claude`. Order: our flags, then config flags, then -w."""
+               extra: Optional[List[str]] = None, prompt: str = "") -> List[str]:
+    """The argument list for `claude`. Order: the prompt, our flags, then config flags, then -w."""
     args: List[str] = []
+    first = check_prompt(prompt)
+    if first:
+        args.append(first)
     model = check_model(model)
     if model:
         args += ["--model", model]
@@ -101,3 +118,59 @@ def run_interactive(cwd: str, args: List[str], claude: str, env: Optional[Dict[s
         raise RunError(f"cannot start claude: {exc}") from exc
     finally:
         signal.signal(signal.SIGINT, old)
+
+
+# ---------------------------------------------------------------- background sessions (T9)
+# Claude Code's own `claude --bg`, `attach` and `stop` (see docs/backlog.md, finding 14).
+# We only run these commands. We never type into a terminal and never send a signal here.
+
+_BG_ID_RE = re.compile(r"backgrounded\s*\S*\s*([0-9a-f]{8})\b")
+SHORT_ID_RE = re.compile(r"^[0-9a-f]{8}$")
+BG_TIMEOUT_S = 60
+
+
+def short_id(session_id: str) -> str:
+    """The id `claude attach` and `claude stop` take: the first 8 characters of the session id."""
+    sid = (session_id or "")[:8].lower()
+    if not SHORT_ID_RE.match(sid):
+        raise RunError("this session has no id that claude can use")
+    return sid
+
+
+def _first_line(text: str) -> str:
+    for line in (text or "").splitlines():
+        line = sanitize(line).strip()
+        if line:
+            return line[:300]
+    return ""
+
+
+def _run_claude(claude: str, args: List[str], cwd: Optional[str], env: Optional[Dict[str, str]]):
+    try:
+        return subprocess.run([claude] + args, cwd=cwd, env=env, capture_output=True, text=True,  # nosec B603
+                              timeout=BG_TIMEOUT_S, stdin=subprocess.DEVNULL)
+    except subprocess.TimeoutExpired as exc:
+        raise RunError(f"claude did not answer within {BG_TIMEOUT_S} seconds") from exc
+    except OSError as exc:
+        raise RunError(f"cannot start claude: {exc}") from exc
+
+
+def start_background(cwd: str, args: List[str], claude: str, env: Optional[Dict[str, str]] = None) -> str:
+    """`claude --bg ...`: start an idle session in the background. Returns its short id."""
+    done = _run_claude(claude, ["--bg"] + args, cwd, env)
+    match = _BG_ID_RE.search(done.stdout or "")
+    if done.returncode != 0 or not match:
+        raise RunError(_first_line(done.stderr) or _first_line(done.stdout) or f"claude --bg failed (exit {done.returncode})")
+    return match.group(1)
+
+
+def attach_args(session_id: str) -> List[str]:
+    return ["attach", short_id(session_id)]
+
+
+def stop_background(session_id: str, claude: str, env: Optional[Dict[str, str]] = None) -> str:
+    """`claude stop <id>`: the official way to end a background session. Returns what claude said."""
+    done = _run_claude(claude, ["stop", short_id(session_id)], None, env)
+    if done.returncode != 0:
+        raise RunError(_first_line(done.stderr) or _first_line(done.stdout) or f"claude stop failed (exit {done.returncode})")
+    return _first_line(done.stdout) or "stopped"

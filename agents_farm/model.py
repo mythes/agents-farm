@@ -147,6 +147,8 @@ class Agent:
     pid: Optional[int] = None
     entrypoint: str = ""
     live_status: str = ""
+    from_pid_file: bool = False      # no transcript yet: built from the pid file alone
+    background: bool = False         # started with `claude --bg` (kind "bg" in the pid file)
     client_version: str = ""
     pid_verified: bool = False
 
