@@ -17,11 +17,10 @@ from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.screen import ModalScreen
-from textual.suggester import SuggestFromList
-from textual.widgets import Checkbox, Collapsible, DataTable, Footer, Input, Select, Static
+from textual.widgets import Collapsible, DataTable, Footer, Input, Static
 
 from .model import STATUS_ORDER, Agent, Snapshot, Status
-from . import killer, runner
+from . import killer, picker, runner
 from . import render as R
 from .search import Query
 
@@ -37,7 +36,7 @@ HELP = [
     ("y", "copy `claude --resume` command for the agent"),
     ("p", "copy the PID of the agent's process"),
     ("x", "stop the agent's process (asks first; the default answer is No)"),
-    ("n", "new `claude` session in this terminal (asks for folder, model, permission mode)"),
+    ("n", "new `claude` session in this terminal: pick a folder, then ctrl+o model, ctrl+p mode, ctrl+t worktree"),
     ("o", "open the agent's full log in $PAGER"),
     ("r", "refresh now"),
     ("?", "this help"),
@@ -93,46 +92,245 @@ class ConfirmKill(ModalScreen[bool]):
         self.dismiss(False)
 
 
-class NewSession(ModalScreen):
-    """Asks what to start. Dismisses with a dict, or None when cancelled. Checks input before it closes."""
+def _list_cell(label: str, offsets: List[int], style: str = "") -> Text:
+    t = Text(label, style=style)
+    for i in offsets:
+        if i < len(label):
+            t.stylize(R.MATCH_STYLE, i, i + 1)
+    return t
 
-    BINDINGS = [Binding("escape", "cancel", "Cancel")]
 
-    def __init__(self, cwd: str, recent: List[str], model: str):
+class ModelPicker(ModalScreen):
+    """Pick a model from a short fuzzy list. Dismisses with the model ('' = default) or None."""
+
+    BINDINGS = [
+        Binding("escape", "cancel", "Cancel"),
+        Binding("up", "move(-1)", "Up", show=False, priority=True),
+        Binding("down", "move(1)", "Down", show=False, priority=True),
+    ]
+
+    def __init__(self, choices: List[picker.ModelChoice], current: str):
         super().__init__()
-        self._cwd, self._recent, self._model = cwd, recent, model
+        self._choices, self._current = choices, current
+        self._shown: List[picker.ModelChoice] = []
+
+    def compose(self) -> ComposeResult:
+        with Vertical(id="mp-body"):
+            yield Input(placeholder="type to filter, or a model name", id="mp-filter", compact=True)
+            yield DataTable(id="mp-list", cursor_type="row", show_header=False, zebra_stripes=False)
+            yield Static("", id="mp-error")
+            yield Footer()
+
+    def on_mount(self) -> None:
+        body = self.query_one("#mp-body")
+        body.border_title = "MODEL"
+        body.border_subtitle = "enter: use the marked model"
+        table = self.query_one("#mp-list", DataTable)
+        table.can_focus = False
+        table.add_column("name", key="name")
+        table.add_column("meta", key="meta")
+        self._fill("")
+        self.query_one("#mp-filter", Input).focus()
+
+    def _fill(self, text: str) -> None:
+        table = self.query_one("#mp-list", DataTable)
+        table.clear()
+        self._shown = picker.filter_models(self._choices, text)
+        for i, c in enumerate(self._shown):
+            mark = "● " if c.value == self._current else "  "
+            table.add_row(_list_cell(mark + c.label, [o + 2 for o in c.offsets], "bold" if c.value == self._current else ""),
+                          Text(c.meta, style="grey58"), key=str(i))
+        self.query_one("#mp-error", Static).update("")
+
+    @on(Input.Changed)
+    def _changed(self, event: Input.Changed) -> None:
+        self._fill(event.value)
+
+    def action_move(self, step: int) -> None:
+        table = self.query_one("#mp-list", DataTable)
+        table.action_cursor_down() if step > 0 else table.action_cursor_up()
+
+    @on(Input.Submitted)
+    def _pick(self) -> None:
+        row = self.query_one("#mp-list", DataTable).cursor_row
+        if not 0 <= row < len(self._shown):
+            return
+        value = self._shown[row].value
+        try:
+            runner.check_model(value)
+        except runner.RunError as exc:
+            self.query_one("#mp-error", Static).update(Text(str(exc), style="bold red"))
+            return
+        self.dismiss(value)
+
+    def action_cancel(self) -> None:
+        self.dismiss(None)
+
+
+class NewSession(ModalScreen):
+    """Where and how to start `claude`. Dismisses with a dict, or None when cancelled.
+
+    The folder list works like a small file browser (see picker.py). Nothing starts until
+    Enter, and the folder is checked again before it closes.
+    """
+
+    BINDINGS = [
+        Binding("escape", "cancel", "Cancel"),
+        Binding("up", "move(-1)", "Up", show=False, priority=True),
+        Binding("down", "move(1)", "Down", show=False, priority=True),
+        Binding("tab", "descend", "Open folder", priority=True),
+        Binding("right", "descend_right", "Open", show=False, priority=True),
+        Binding("enter", "start", "Start", show=True),
+        Binding("ctrl+o", "model", "Model"),
+        Binding("ctrl+p", "mode", "Mode"),
+        Binding("ctrl+t", "worktree", "Worktree"),
+    ]
+
+    def __init__(self, cwd: str, agents: List[Agent], opts: Dict, extra_models: List[str]):
+        super().__init__()
+        self._cwd = cwd
+        self._agents, self._extra = agents, extra_models
+        self._recents = picker.recent_dirs(agents)
+        self.opts = dict(opts)
+        self._rows: List[picker.Row] = []
 
     def compose(self) -> ComposeResult:
         with Vertical(id="new-body"):
-            yield Static(Text("Start a new claude session", style="bold"))
-            yield Static(Text("Folder (→ accepts a suggestion from recent projects)", style="grey70"))
-            yield Input(self._cwd, id="ns-dir", suggester=SuggestFromList(self._recent, case_sensitive=True))
-            yield Static(Text("Model (empty = Claude's default)", style="grey70"))
-            yield Input(self._model, id="ns-model", placeholder="opus, sonnet, claude-opus-5-5")
-            yield Static(Text("Permission mode", style="grey70"))
-            yield Select([(m, m) for m in runner.PERMISSION_MODES], value="default", allow_blank=False, id="ns-mode")
-            yield Checkbox("Work in a new git worktree (-w)", id="ns-worktree")
-            yield Static("", id="ns-error")
-            yield Static(Text("enter in a text field: start   esc: cancel", style="grey50"))
+            yield Input(picker.tidy(self._cwd).rstrip("/") + "/", id="ns-dir", compact=True)
+            with Horizontal(id="ns-main"):
+                yield DataTable(id="ns-list", cursor_type="row", show_header=False, zebra_stripes=False)
+                yield Static(id="ns-preview")
+            yield Static(id="ns-opts")
+            yield Static(id="ns-error")
+            yield Footer()
 
     def on_mount(self) -> None:
-        self.query_one("#ns-dir", Input).focus()
+        self.query_one("#new-body").border_title = "NEW SESSION"
+        self.query_one("#new-body").border_subtitle = "enter: start in the marked folder"
+        table = self.query_one("#ns-list", DataTable)
+        table.can_focus = False
+        table.add_column("name", key="name")
+        table.add_column("meta", key="meta")
+        self.query_one("#ns-preview").border_title = "PREVIEW"
+        field = self.query_one("#ns-dir", Input)
+        field.focus()
+        field.action_end()
+        self._fill(field.value)
+        self._show_opts()
+        self._apply_size(self.size.width)
 
-    @on(Input.Submitted)
+    def on_resize(self, event) -> None:
+        self._apply_size(event.size.width)
+
+    def _apply_size(self, width: int) -> None:
+        self.query_one("#new-body").set_class(width < 100, "-narrow")
+
+    # ----------------------------------------------------------------- list
+
+    def _fill(self, text: str) -> None:
+        table = self.query_one("#ns-list", DataTable)
+        table.clear()
+        self._rows = picker.folder_rows(text, self._recents)
+        for i, r in enumerate(self._rows):
+            style = {"here": "bold green", "up": "grey70"}.get(r.kind, "")
+            label = ("● " if r.kind == "here" else "") + r.label
+            table.add_row(_list_cell(label, [o + (2 if r.kind == "here" else 0) for o in r.offsets], style),
+                          Text(r.meta, style="grey58"), key=str(i))
+        base, fragment = picker.split_path(text)
+        table.border_title = ("RECENT PROJECTS" if base is None else "FOLDERS") + f" ({len(self._rows)})"
+        self.query_one("#ns-error", Static).update("")
+        self._show_preview()
+
+    def _current(self) -> Optional[picker.Row]:
+        row = self.query_one("#ns-list", DataTable).cursor_row
+        return self._rows[row] if 0 <= row < len(self._rows) else None
+
+    def _show_preview(self) -> None:
+        row = self._current()
+        t = Text()
+        if row:
+            for style, line in picker.preview(row.path, self._recents):
+                t.append(line + "\n", style=style)
+        else:
+            t.append("nothing matches", style="grey50")
+        self.query_one("#ns-preview", Static).update(t)
+
+    @on(Input.Changed, "#ns-dir")
+    def _changed(self, event: Input.Changed) -> None:
+        self._fill(event.value)
+
+    @on(DataTable.RowHighlighted, "#ns-list")
+    def _moved(self) -> None:
+        self._show_preview()
+
+    def action_move(self, step: int) -> None:
+        table = self.query_one("#ns-list", DataTable)
+        table.action_cursor_down() if step > 0 else table.action_cursor_up()
+
+    def check_action(self, action: str, parameters) -> Optional[bool]:
+        # → opens a folder only when the text cursor is at the end. Otherwise it moves the cursor as usual.
+        if action == "descend_right":
+            field = self.query_one("#ns-dir", Input)
+            return field.cursor_position >= len(field.value)
+        return True
+
+    def action_descend_right(self) -> None:
+        self.action_descend()
+
+    def action_descend(self) -> None:
+        row = self._current()
+        if row and row.kind != "here":
+            field = self.query_one("#ns-dir", Input)
+            field.value = picker.descend_text(row)
+            field.action_end()
+
+    # ------------------------------------------------------------- options
+
+    def _show_opts(self) -> None:
+        o = self.opts
+        t = Text()
+        t.append(" model ", style="grey58")
+        t.append(o["model"] or "default", style="bold")
+        t.append("   mode ", style="grey58")
+        t.append(o["mode"], style="bold")
+        t.append("   worktree ", style="grey58")
+        t.append("on" if o["worktree"] else "off", style="bold green" if o["worktree"] else "bold")
+        self.query_one("#ns-opts", Static).update(t)
+
+    def action_model(self) -> None:
+        choices = picker.known_models(self._agents, self._extra)
+        self.app.push_screen(ModelPicker(choices, self.opts["model"]), self._model_chosen)
+
+    def _model_chosen(self, value) -> None:
+        if value is not None:
+            self.opts["model"] = value
+            self._show_opts()
+
+    def action_mode(self) -> None:
+        modes = runner.PERMISSION_MODES
+        self.opts["mode"] = modes[(modes.index(self.opts["mode"]) + 1) % len(modes)]
+        self._show_opts()
+
+    def action_worktree(self) -> None:
+        self.opts["worktree"] = not self.opts["worktree"]
+        self._show_opts()
+
+    # --------------------------------------------------------------- finish
+
+    @on(Input.Submitted, "#ns-dir")
     def _submit(self) -> None:
+        self.action_start()
+
+    def action_start(self) -> None:
+        row = self._current()
         try:
-            folder = runner.check_dir(self.query_one("#ns-dir", Input).value)
-            model = runner.check_model(self.query_one("#ns-model", Input).value)
+            if not row:
+                raise runner.RunError("no folder to start in: type a path, or clear the field to see recent projects")
+            folder = runner.check_dir(row.path)
         except runner.RunError as exc:
             self.query_one("#ns-error", Static).update(Text(str(exc), style="bold red"))
             return
-        mode = self.query_one("#ns-mode", Select).value
-        self.dismiss({
-            "cwd": folder,
-            "model": model,
-            "mode": mode if isinstance(mode, str) else "default",
-            "worktree": self.query_one("#ns-worktree", Checkbox).value,
-        })
+        self.dismiss({"cwd": folder, "model": self.opts["model"], "mode": self.opts["mode"], "worktree": self.opts["worktree"]})
 
     def action_cancel(self) -> None:
         self.dismiss(None)
@@ -140,6 +338,7 @@ class NewSession(ModalScreen):
 
 class FarmApp(App):
     TITLE = "agents-farm"
+    ENABLE_COMMAND_PALETTE = False     # ctrl+p is used by the new-session dialog
     CSS = """
     Screen { layout: vertical; }
     #topbar { height: 1; background: $panel; }
@@ -161,9 +360,19 @@ class FarmApp(App):
     Screen.-zoom #left { display: none; }
     Screen.-zoom #detail { display: block; }
     HelpScreen, ConfirmKill, NewSession { align: center middle; }
-    #new-body { width: 78; height: auto; padding: 1 2; border: round $primary; background: $panel; }
-    #new-body Input { margin-bottom: 1; }
+    ModelPicker { align: center middle; }
+    #new-body { width: 92%; max-width: 110; height: 90%; max-height: 30; border: round $primary; border-title-color: $text; background: $surface; padding: 0 1; }
+    #new-body Input, #mp-body Input { border: none; height: 1; padding: 0 1; background: $panel; margin-bottom: 1; }
+    #ns-main { height: 1fr; }
+    #ns-list { width: 1fr; height: 1fr; border: round $primary 40%; border-title-color: $text; background: $surface; }
+    #ns-preview { width: 45%; height: 1fr; border: round $secondary 40%; border-title-color: $text; padding: 0 1; }
+    #new-body.-narrow #ns-preview { display: none; }
+    #ns-opts { height: 1; background: $panel; }
     #ns-error { height: auto; }
+    #mp-body { width: 70; max-width: 95%; height: auto; max-height: 24; border: round $primary; border-title-color: $text; background: $surface; padding: 0 1; }
+    #mp-list { height: auto; max-height: 14; background: $surface; }
+    #mp-error { height: auto; }
+    #new-body Footer, #mp-body Footer { margin-top: 0; }
     #kill-body { width: 82; height: auto; padding: 1 2; border: round $error; background: $panel; }
     #help-body { width: 78; height: auto; padding: 1 2; border: round $primary; background: $panel; }
     """
@@ -206,6 +415,7 @@ class FarmApp(App):
         self._prev_status: Dict[str, Status] = {}
         self._limit_alerts: Set[Tuple[str, str]] = set()
         self._first = True
+        self._new_opts: Optional[Dict] = None        # last choices in the new-session dialog
         self._pick_new: Optional[Set[str]] = None   # ids known before `claude` started
         self._windows = getattr(store, "cfg", {}).get("context_window")
 
@@ -597,12 +807,16 @@ class FarmApp(App):
         """n: ask what to start, then give the terminal to `claude` until it exits."""
         a = self._selected()
         cwd = (a.cwd if a and a.cwd and os.path.isdir(a.cwd) else "") or os.getcwd()
-        model = str(getattr(self.store, "cfg", {}).get("new_model") or "")
-        self.push_screen(NewSession(cwd, self._recent_dirs(), model), self._start_session)
+        cfg = getattr(self.store, "cfg", {})
+        if self._new_opts is None:
+            self._new_opts = {"model": str(cfg.get("new_model") or ""), "mode": "default", "worktree": False}
+        extra = [m for m in (cfg.get("models") or []) if isinstance(m, str)]
+        self.push_screen(NewSession(cwd, list(self.snap.agents) if self.snap else [], self._new_opts, extra), self._start_session)
 
     def _start_session(self, choice) -> None:
         if not choice:
             return
+        self._new_opts = {k: choice[k] for k in ("model", "mode", "worktree")}      # the next dialog starts with the same choices
         if self.snap and self.snap.source == "demo":
             self.notify("demo mode: no session was started", timeout=4, markup=False)
             return

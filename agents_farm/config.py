@@ -45,6 +45,7 @@ DEFAULTS = {
     "claude_args": [],       # extra flags for every new session, for example ["--verbose"]
     "claude_env": {},        # extra environment variables for `claude`
     "new_model": "",         # default model in the new-session dialog ("" = Claude's default)
+    "models": [],            # extra model names to offer in the dialog (ctrl+o)
 }
 
 

@@ -82,18 +82,26 @@ agents-farm status --json
 | `y` | Copy `cd … && claude --resume <id>` (works over SSH too) |
 | `p` | Copy the PID of the agent's process |
 | `x` | Stop the agent's process. It asks first, and the default answer is No |
-| `n` | Start a new `claude` session in this terminal (asks for folder, model, permission mode, worktree) |
+| `n` | Start a new `claude` session in this terminal: folder browser, model list, permission mode, worktree |
 | `o` | Open the full log in `$PAGER` |
 | `?` | Help |
 | `q` | Quit |
 
 ## Starting a new session
 
-Press `n`. A dialog asks for the folder (it starts with the folder of the selected agent, and `→` completes from your recent projects), the model, the permission mode (`default`, `acceptEdits` or `plan`) and whether to work in a new git worktree (`-w`). Enter starts `claude` in this same terminal. agents-farm steps aside while it runs. When you leave `claude` (`/exit`), the dashboard comes back and selects the new session.
+Press `n`. The dialog is a small folder browser:
 
-- A folder that does not exist, or a bad model name, is shown in the dialog and nothing starts.
+- The path field starts with the folder of the selected agent. The list under it shows the sub-folders of that folder, with `use this folder` and `..` on top. A panel on the right previews the marked folder: its content, the git branch, and how many Claude sessions you had there.
+- Delete back to a `/` and you see the neighbouring folders. Type letters after the last `/` and the list is filtered with fuzzy matching (`apirf` finds `api-refactor`, the matched letters are highlighted).
+- With no `/` in the field (or an empty field) the list shows your recent projects, newest first.
+- `↑` `↓` move in the list while you type. `Tab` (or `→` at the end of the text) opens the marked folder. `Enter` starts `claude` there.
+- `Ctrl+O` picks the model from a short fuzzy list: `default`, the aliases (`fable`, `opus`, `sonnet`, `haiku`: always the latest version), the models found in your sessions, and the names in `models` in the config. A name that is not in the list can be typed and used as it is. `Ctrl+P` changes the permission mode (`default`, `acceptEdits`, `plan`). `Ctrl+T` turns the git worktree (`-w`) on or off. The line above the footer shows the current choices, and the next dialog starts with them.
+
+`claude` starts in this same terminal and agents-farm steps aside. When you leave `claude` (`/exit`), the dashboard comes back and selects the new session.
+
 - Modes that skip permission checks are not offered. You can still pass any flag yourself with `claude_args` in the config.
 - `claude` is looked up on `PATH`, then in `~/.local/bin`. Set `claude_bin` in the config to use another program.
+- The list only reads folder names (not recursive, at most 500 per folder, hidden folders only when you type a dot).
 - In `--demo` mode nothing is started.
 
 ## Stopping an agent
@@ -151,11 +159,12 @@ All keys are optional. The file is `~/.agents-farm/config.json`:
   "claude_args": [],
   "claude_env": {},
   "new_model": "",
+  "models": [],
   "context_window": {"default": 200000, "opus-5": 1000000, "sonnet-5": 1000000}
 }
 ```
 
-`claude_args` are extra flags for every new session (a list of strings), `claude_env` are extra environment variables, and `new_model` is the default model in the dialog.
+`claude_args` are extra flags for every new session (a list of strings), `claude_env` are extra environment variables, and `new_model` is the default model in the dialog. `models` adds model names to its list.
 
 `busy_stalled_s` is how long a `busy` agent may print nothing before it is shown as stalled (default 10 minutes).
 
