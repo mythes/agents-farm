@@ -6,6 +6,9 @@ updates:
     schedule:
       interval: weekly
     open-pull-requests-limit: 5
+    groups:
+      python-deps:        # one pull request for all Python updates
+        patterns: ["*"]
 
   # GitHub Actions: keeps the pinned commit SHAs in the workflows up to date
   - package-ecosystem: github-actions
@@ -13,3 +16,6 @@ updates:
     schedule:
       interval: weekly
     open-pull-requests-limit: 5
+    groups:
+      actions:            # one pull request for all actions, so codeql init and analyze always match
+        patterns: ["*"]
