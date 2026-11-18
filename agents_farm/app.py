@@ -36,7 +36,7 @@ HELP = [
     ("y", "copy `claude --resume` command for the agent"),
     ("p", "copy the PID of the agent's process"),
     ("x", "stop the agent's process (asks first; the default answer is No)"),
-    ("n", "new `claude` session in this terminal: pick a folder, then ctrl+o model, ctrl+p mode, ctrl+t worktree"),
+    ("n", "new `claude` session in this terminal: pick a folder, then ctrl+a model, ctrl+s mode, ctrl+d worktree"),
     ("o", "open the agent's full log in $PAGER"),
     ("r", "refresh now"),
     ("?", "this help"),
@@ -175,15 +175,15 @@ class NewSession(ModalScreen):
     """
 
     BINDINGS = [
-        Binding("escape", "cancel", "Cancel"),
         Binding("up", "move(-1)", "Up", show=False, priority=True),
         Binding("down", "move(1)", "Down", show=False, priority=True),
         Binding("tab", "descend", "Open folder", priority=True),
         Binding("right", "descend_right", "Open", show=False, priority=True),
         Binding("enter", "start", "Start", show=True),
-        Binding("ctrl+o", "model", "Model"),
-        Binding("ctrl+p", "mode", "Mode"),
-        Binding("ctrl+t", "worktree", "Worktree"),
+        Binding("ctrl+a", "model", "Model", priority=True),
+        Binding("ctrl+s", "mode", "Mode", priority=True),
+        Binding("ctrl+d", "worktree", "Worktree", priority=True),
+        Binding("escape", "cancel", "Cancel"),
     ]
 
     def __init__(self, cwd: str, agents: List[Agent], opts: Dict, extra_models: List[str]):
@@ -202,7 +202,7 @@ class NewSession(ModalScreen):
                 yield Static(id="ns-preview")
             yield Static(id="ns-opts")
             yield Static(id="ns-error")
-            yield Footer()
+            yield Static(self._hints(), id="ns-hints")
 
     def on_mount(self) -> None:
         self.query_one("#new-body").border_title = "NEW SESSION"
@@ -218,6 +218,15 @@ class NewSession(ModalScreen):
         self._fill(field.value)
         self._show_opts()
         self._apply_size(self.size.width)
+
+    @staticmethod
+    def _hints() -> Text:
+        """Like the footer, but in a fixed order (the real footer orders keys by how Textual finds them)."""
+        t = Text(no_wrap=True, overflow="ellipsis")
+        for key, label in (("tab", "Open folder"), ("^a", "Model"), ("^s", "Mode"), ("^d", "Worktree"), ("esc", "Cancel")):
+            t.append(f" {key} ", style="bold #ffaf00")
+            t.append(f"{label} ")
+        return t
 
     def on_resize(self, event) -> None:
         self._apply_size(event.size.width)
@@ -323,6 +332,9 @@ class NewSession(ModalScreen):
 
     def action_start(self) -> None:
         row = self._current()
+        if row and row.kind == "up":        # ".." goes up, it never starts anything
+            self.action_descend()
+            return
         try:
             if not row:
                 raise runner.RunError("no folder to start in: type a path, or clear the field to see recent projects")
@@ -338,7 +350,6 @@ class NewSession(ModalScreen):
 
 class FarmApp(App):
     TITLE = "agents-farm"
-    ENABLE_COMMAND_PALETTE = False     # ctrl+p is used by the new-session dialog
     CSS = """
     Screen { layout: vertical; }
     #topbar { height: 1; background: $panel; }
@@ -369,10 +380,11 @@ class FarmApp(App):
     #new-body.-narrow #ns-preview { display: none; }
     #ns-opts { height: 1; background: $panel; }
     #ns-error { height: auto; }
+    #ns-hints { height: 1; background: $panel; }
     #mp-body { width: 70; max-width: 95%; height: auto; max-height: 24; border: round $primary; border-title-color: $text; background: $surface; padding: 0 1; }
     #mp-list { height: auto; max-height: 14; background: $surface; }
     #mp-error { height: auto; }
-    #new-body Footer, #mp-body Footer { margin-top: 0; }
+    #mp-body Footer { margin-top: 0; }
     #kill-body { width: 82; height: auto; padding: 1 2; border: round $error; background: $panel; }
     #help-body { width: 78; height: auto; padding: 1 2; border: round $primary; background: $panel; }
     """

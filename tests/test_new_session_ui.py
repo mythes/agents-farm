@@ -97,6 +97,26 @@ def test_tab_opens_the_highlighted_folder_and_the_preview_shows_its_content(no_r
     run(scenario)
 
 
+def test_enter_on_dot_dot_goes_up_and_does_not_start_claude(no_run, tmp_path):
+    base = tree(tmp_path)
+
+    async def scenario(app, pilot):
+        await pilot.press("n")
+        await typed(pilot, app, base + "/api-refactor/")
+        await pilot.press("down")                                      # the ".." row
+        assert app.screen._current().kind == "up"
+        await pilot.press("enter")
+        await pilot.pause(0.3)
+        assert isinstance(app.screen, NewSession)                      # still open
+        field = app.screen.query_one("#ns-dir", Input)
+        assert os.path.realpath(os.path.expanduser(field.value)) == os.path.realpath(base)
+        assert "api-refactor/" in labels(app) and "docs-writer/" in labels(app)
+        await pilot.press("escape")
+
+    run(scenario)
+    assert no_run == []
+
+
 def test_up_and_down_move_in_the_list_while_you_type(no_run, tmp_path):
     base = tree(tmp_path)
 
@@ -135,26 +155,22 @@ def test_the_right_arrow_moves_the_text_cursor_unless_it_is_at_the_end(no_run, t
 def test_hot_keys_change_the_options_and_the_summary(no_run):
     async def scenario(app, pilot):
         await pilot.press("n")
-        await pilot.press("ctrl+p")
-        await pilot.press("ctrl+t")
+        await pilot.press("ctrl+s")
+        await pilot.press("ctrl+d")
         text = str(app.screen.query_one("#ns-opts", Static).render())
         assert "mode acceptEdits" in text and "worktree on" in text
-        await pilot.press("ctrl+p", "ctrl+p")
+        await pilot.press("ctrl+s", "ctrl+s")
         assert "mode default" in str(app.screen.query_one("#ns-opts", Static).render())
         await pilot.press("escape")
 
     run(scenario)
-    assert app_palette_is_off()
 
-
-def app_palette_is_off():
-    return FarmApp.ENABLE_COMMAND_PALETTE is False
 
 
 def test_the_model_list_filters_and_selects(no_run):
     async def scenario(app, pilot):
         await pilot.press("n")
-        await pilot.press("ctrl+o")
+        await pilot.press("ctrl+a")
         await pilot.pause(0.3)
         assert isinstance(app.screen, ModelPicker)
         names = [c.value for c in app.screen._shown]
@@ -173,7 +189,7 @@ def test_the_model_list_filters_and_selects(no_run):
 
 def test_a_model_typed_by_hand_is_checked(no_run):
     async def scenario(app, pilot):
-        await pilot.press("n", "ctrl+o")
+        await pilot.press("n", "ctrl+a")
         await pilot.pause(0.3)
         field = app.screen.query_one("#mp-filter", Input)
         field.value = "--bad"
@@ -246,13 +262,13 @@ def test_enter_starts_claude_with_the_choices_and_selects_the_new_session(tmp_pa
         app.suspend = no_suspend
         await pilot.press("n")
         await typed(pilot, app, str(work) + "/pro")
-        await pilot.press("ctrl+o")
+        await pilot.press("ctrl+a")
         await pilot.pause(0.3)
         app.screen.query_one("#mp-filter", Input).value = "my-model"
         await pilot.pause(0.2)
         await pilot.press("enter")
         await pilot.pause(0.3)
-        await pilot.press("ctrl+p", "ctrl+p", "ctrl+t")                      # plan + worktree
+        await pilot.press("ctrl+s", "ctrl+s", "ctrl+d")                      # plan + worktree
         await pilot.press("enter")
         end = time.monotonic() + 8
         while time.monotonic() < end and app.selected_id != new_sid:
