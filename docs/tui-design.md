@@ -2,7 +2,7 @@
 
 Goal: on one screen, see **which agent does what**, the **task context** (you can open it), and **how much of your model limits is left**. Then you can see in time that an agent is stuck, is waiting for you, or that a model is close to its limit.
 
-We built layout **A**. The other layouts are kept here as ideas.
+We built layout **A**. The other layouts are kept here as ideas. The sketches are early: some keys in them (for example `p pause`) were never built. For the real keys, see the README.
 
 ---
 
@@ -18,7 +18,7 @@ We built layout **A**. The other layouts are kept here as ideas.
 | `!` | error | red | failed or out of retries |
 | `◌` | idle | grey | no task |
 | `✓` | done | soft green | finished, needs a look |
-| `⏸` | stalled | orange | no activity for N minutes |
+| `⏸` | stalled | orange | a live process that printed nothing for a long time (10 min by default); never used for a session whose process has ended |
 
 ### Limit bar per model
 

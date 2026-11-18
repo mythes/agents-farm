@@ -90,7 +90,7 @@ agents-farm status --json
 | `1` `2` `3` | Open or close Context / Activity / Plan |
 | `e` | Open or close all sections |
 | `/` | Search: a few letters (`apirf` finds `api-refactor`) and filters (`status:waiting`, `model:opus`, `project:api`) |
-| `h` | Show or hide idle sessions and finished subagents |
+| `h` | Show or hide idle sessions (this includes sessions whose process has ended) and finished subagents |
 | `y` | Copy `cd … && claude --resume <id>` (works over SSH too) |
 | `p` | Copy the PID of the agent's process |
 | `a` | Attach to a background session. **`Ctrl+Z` leaves it and keeps it running** (not `/exit`: that ends it) |
@@ -110,7 +110,11 @@ Press `n`. The dialog is a small folder browser:
 - `↑` `↓` move in the list while you type. `Tab` (or `→` at the end of the text) opens the marked folder. `Enter` starts `claude` there (on the `..` row, `Enter` goes up instead).
 - `Ctrl+A`, `Ctrl+S` and `Ctrl+D` are next to each other on the left hand, so the dialog can be driven with one hand. `Ctrl+A` picks the model from a short fuzzy list: `default`, the aliases (`fable`, `opus`, `sonnet`, `haiku`: always the latest version), the models found in your sessions, and the names in `models` in the config. A name that is not in the list can be typed and used as it is. `Ctrl+S` changes the permission mode (`default`, `acceptEdits`, `plan`). `Ctrl+D` turns the git worktree (`-w`) on or off. `Ctrl+E` starts the session from anywhere in the dialog (it is the same as `Enter` in the path field, and the only way to start from the prompt editor). The two lines at the bottom list the keys: options and start on the first line, moving around on the second. `Ctrl+F` opens an optional first prompt (it works for normal and background sessions): the editor takes the whole folder area, long lines wrap, `Enter` adds a new line, and `Ctrl+F` again goes back to the folders (the text is kept). The line above the footer shows the current choices, and the next dialog starts with them.
 
-`claude` starts in this same terminal and agents-farm steps aside. When you leave `claude` (`/exit`), the dashboard comes back and selects the new session.
+**Every session starts in the background** (`claude --bg`), so it keeps running whatever you do next. What the dialog does after that depends on `Ctrl+B` (background):
+
+- **Off (a normal session, the default).** agents-farm opens the new session right away in this terminal (`claude attach`) and steps aside. Press **`Ctrl+Z`** to come back to the dashboard: the session keeps running. `/exit` ends it. The dashboard selects the new session.
+- **On (background).** The session starts and stays closed, and agents-farm stays on screen. Open it later with `a`.
+- If the folder is not trusted yet, `claude` refuses to start a background session there. A normal session then falls back to a plain `claude` in this terminal, so you can answer the trust question yourself (in that one, leave with `/exit`).
 
 - Modes that skip permission checks are not offered. You can still pass any flag yourself with `claude_args` in the config.
 - `claude` is looked up on `PATH`, then in `~/.local/bin`. Set `claude_bin` in the config to use another program.
@@ -123,10 +127,10 @@ Press `n`. The dialog is a small folder browser:
 
 Claude Code can run a session in the background (`claude --bg`) and let you open it later (`claude attach`). agents-farm uses these official commands:
 
-- In the `n` dialog press `Ctrl+B` to start the new session in the background. `af` stays on screen, and the session appears in the list (the details show `background`). You can write a first prompt in the dialog (`Ctrl+F` opens a multi-line editor and brings you back). Without a prompt it starts empty: attach to it and type one.
+- Every session started with `n` is a background session. With `Ctrl+B` on in the dialog it is not opened: `af` stays on screen, and the session appears in the list (the details show `background`). You can write a first prompt in the dialog (`Ctrl+F` opens a multi-line editor and brings you back). Without a prompt it starts empty: open it with `a` and type one.
 - Select a background session and press `a`. It opens in this terminal and you can type to it, also while it is working. To come back to agents-farm press **`Ctrl+Z`**: the session keeps running. Do not use `/exit`, that ends it.
 - `x` on a background session runs `claude stop` (the official way). The history is kept.
-- Sessions that were not started in the background (a CLI in another terminal, Claude Desktop) are view-only here, apart from `x`.
+- Sessions that were not started in the background (a CLI in another terminal, Claude Desktop) are view-only here, apart from `x`. A background session that you started with `claude --bg` yourself works the same way.
 - A background session in `default` mode stops at its first permission request (`blocked`, shown as `? waiting`). Use `acceptEdits` or `plan`, or attach and answer.
 - Background sessions use your limits while you are not looking.
 - Claude only starts a background session in a folder you already trusted. If it says "Workspace not trusted", run `claude` there once by hand.
@@ -148,6 +152,8 @@ To turn the key off, set `"allow_kill": false` in the config.
 1. **Transcripts** in `~/.claude/projects/**/*.jsonl`. They are read step by step (only new lines). They give the prompt, the steps, files, plan, tokens, model and context size.
 2. **Process files** in `~/.claude/sessions/<pid>.json`, written by Claude Code. They give the PID, Desktop or CLI, and the version. A PID is shown only if that process is running and its start time matches the file, so a reused PID is never shown for the wrong session. Their `status` field (`idle`, `busy`, `waiting`) is also the **live status** of the agent: the exact `? waiting` needs no setup, and it appears about 6 seconds sooner than the Claude Code notification hook.
 3. **Hooks** (optional). The status no longer depends on them. When hooks are installed, they add the text of the request (for example `permission: Bash`), and they are the only source for sessions that have no process file (older Claude Code versions). Without a process file and without hooks, "waiting for permission" can only be guessed, and the agent can show as `⏸ stalled`.
+
+When there is no process for a session any more and its transcript has been quiet for a minute, it is shown as `idle` (ended), not as `running` or `stalled`, and it is hidden until you press `h`. `stalled` (`⏸`) is only used for a live process that has printed nothing for a long time (see `busy_stalled_s`).
 
 ### Install the hooks (optional)
 

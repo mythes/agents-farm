@@ -6,10 +6,16 @@ All notable changes are listed here. The format follows [Keep a Changelog](https
 
 ## [0.5.0] - 2026-11-18
 
-A multi-line first prompt and clearer key hints in the new-session dialog.
+A multi-line first prompt, clearer key hints, and every session started in the background.
 
 ### Changed
-- The first prompt in the `n` dialog is a multi-line editor. `Ctrl+F` hides the folder list and gives the whole area to the prompt: long lines wrap, `Enter` adds a new line, and `Ctrl+F` goes back to the folders. `Ctrl+E` starts the session from anywhere in the dialog, with or without a prompt. The arrow keys, `Tab` and `→` belong to the text there. When the editor is closed, one line under the list shows the prompt. The key hints at the bottom of the dialog have two levels: options and start (`^a` `^s` `^d` `^b` `^e`), and navigation (`tab`, `^f`, `esc`). Each group has its own shade (amber for options, blue for moving, green for `Start`, red for `Cancel`), and the values on the options line are coloured by meaning (a changed value stands out, `off` and `default` are quiet).
+- **Every session now starts in the background** (`claude --bg`), so it keeps running whatever you do next. A normal session (the default) is opened right away with `claude attach`, and **`Ctrl+Z` brings you back** to agents-farm while the session keeps running (`/exit` ends it). With `Ctrl+B` on, the session is not opened and you open it later with `a`. If the folder is not trusted yet, a normal session falls back to a plain `claude` in this terminal, so you can answer the trust question yourself.
+- The first prompt in the `n` dialog is a multi-line editor. `Ctrl+F` hides the folder list and gives the whole area to the prompt. Long lines wrap and `Enter` adds a new line; `Ctrl+E` starts the session from anywhere in the dialog (with or without a prompt); the arrow keys, `Tab` and `→` belong to the text there. The key hints at the bottom have two levels (options and start, then moving around), a colour for each group, and the option values are coloured by meaning.
+
+### Fixed
+- A session whose process is gone and whose transcript has been quiet for a minute was shown as `stalled` or `running` (a guess from the transcript, for example after you interrupted it). It is now `idle` (ended) and hidden until you press `h`. Errors, finished answers and sessions that are still writing are not affected.
+- `Ctrl+Z` in an attached background session stopped agents-farm itself. The terminal sends the key to every process in the foreground group, and agents-farm was one of them, so it was stopped while `claude` left. Now agents-farm ignores the stop signal while `claude` runs, ends the attach client when you press `Ctrl+Z` and comes back to the dashboard (the session keeps running). In a normal session `Ctrl+Z` still does nothing: a stopped `claude` is resumed, so no stopped process is left behind.
+- A finished process that its parent has not cleaned up yet (`<defunct>`, a zombie) was listed as running, and `x` on it said "does not look like claude". It is no longer listed as running, and the message now explains it.
 
 ## [0.4.1] - 2026-11-18
 

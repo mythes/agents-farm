@@ -33,16 +33,15 @@ def typed(text, gap=0.11):
 STEPS = (
     [(2.6, b"")]                        # first look: the agent that waits for you is on top
     + [(1.2, b"j"), (0.9, b"j"), (0.9, b"j")]   # move down to the running agent (plan + activity)
-    + [(2.2, b"1")]                     # open the Context section
     + [(2.0, b"z")]                     # zoom: details on the full screen
     + [(1.8, ESC)]                      # back to the list
-    + [(1.0, b"/")] + typed("apirf") + [(1.8, ESC)]   # fuzzy search, then clear it
+    + [(1.0, b"/")] + typed("apir") + [(1.8, ESC)]   # fuzzy search, then clear it
     + [(1.0, b"n")] + typed("apir") + [(1.8, b"\t")]   # new session: fuzzy folder, Tab opens it
     + [(1.8, b"\x01")] + typed("son") + [(1.4, ENTER)]  # Ctrl+A: pick a model
-    + [(1.0, b"\x13"), (1.0, b"\x04")]                  # Ctrl+S mode, Ctrl+D worktree
-    + [(1.0, b"\x02")]                  # Ctrl+B: start in the background
-    + [(1.0, b"\x06")] + typed("fix tests", gap=0.06)   # Ctrl+F: a first prompt
-    + [(1.8, ESC)]                      # cancel: the demo never starts claude
+    + [(1.0, b"\x13"), (1.0, b"\x02")]                  # Ctrl+S mode, Ctrl+B background (start closed)
+    + [(1.2, b"\x06")] + typed("fix tests", gap=0.06) + [(0.5, ENTER)] + typed("lint too", gap=0.06)   # Ctrl+F: the prompt editor (Enter = new line)
+    + [(1.4, b"\x06")]                  # Ctrl+F again: back to the folders
+    + [(1.6, ESC)]                      # cancel: the demo never starts claude
     + [(1.0, b"/")] + typed("mig") + [(0.8, ENTER)]   # find the background session
     + [(1.4, b"a")] + [(2.4, ESC)]      # attach: the hint says how to come back (Ctrl+Z)
     + [(0.8, ESC)]                      # clear the search

@@ -203,23 +203,21 @@ Checked on a real machine with Claude Code 2.1.319 / 2.1.325. These facts change
 
 ---
 
-### T9 · Background sessions: start, attach, stop · M
+### T9 · Background sessions: start, attach, stop · M · **done (v0.5.0)**
 
 **Possible:** ✅ (S5, finding 14). Uses the official commands only (`claude --bg`, `attach`, `stop`, `agents --json`), no keystroke injection and no tmux.
 
-**Plan**
-- In the `n` dialog add a toggle `Ctrl+B`: "run in the background". It starts `claude --bg ...` with the same model, mode and folder checks. `af` stays on screen and selects the new session (found by its short id, the first 8 characters of the session id).
-- A folder that is not trusted gives the message from `claude` ("Workspace not trusted"), never an automatic "yes".
-- The list marks background sessions (`kind: "bg"` in the pid file) with a small sign. State from `claude agents --json` (`working`, `done`, `blocked`) is shown as `? waiting` for `blocked`.
-- `Enter` on a background session (key `a`) runs `claude attach <id>` inside `App.suspend()`. The user leaves with **Ctrl+Z** (the process ends with code 0 and the session keeps running) and lands back in `af`. The hint is shown in the dialog before attach.
-- `x` on a background session uses `claude stop <id>` (the official way) instead of a signal, with the same confirmation.
-- `claude rm` is not offered (it can delete a worktree).
-- Warn when the mode is `default`: a background session stops at its first permission request (`blocked`) until someone attaches. Suggest `acceptEdits` or `plan`.
-- Show a clean "terminal output" block in zoom from `claude logs <id>` only after removing escape codes (optional, later).
-- Sessions that are not background (CLI in another terminal, Desktop) stay view-only, with `x` and copy-resume as today.
+**What was built (the design changed while we tested)**
+- **Every session starts with `claude --bg`.** In the `n` dialog, `Ctrl+B` (background) decides what happens next: on = stay in `af` and open it later with `a`; off (a normal session) = `claude attach <id>` right away inside `App.suspend()`. So `Ctrl+Z` brings you back to `af` in both cases and the session keeps running. We first tried to park a normal foreground `claude` that was stopped with Ctrl+Z, and dropped it: a stopped process does no work, and a normal `claude` cannot run without the terminal.
+- **`Ctrl+Z` handling (`runner.run_interactive`).** The terminal sends it to every process of the foreground group, `af` included, so `af` was stopped while `claude` left. Now `af` uses a signal handler that does nothing (not `SIG_IGN`, which the child would inherit) for `SIGINT` and `SIGTSTP`, waits with `WUNTRACED`, ends a stopped attach client (`leave_on_stop`) and resumes any other stopped child.
+- A folder that is not trusted: `claude --bg` says "Workspace not trusted". A normal session falls back to a plain `claude` in the foreground so the user can answer the question; with `Ctrl+B` on, the error is shown. We never answer the trust question for the user.
+- `a` runs `claude attach <id>`, with a hint first. `x` on a background session runs `claude stop <id>`. `claude rm` is not offered (it can delete a worktree).
+- The first prompt (optional, multi-line, `Ctrl+F`) goes first in the argument list, and a leading `-` is hidden behind a space.
+- A running session with no transcript yet (a new background session) is listed from its pid file. A session with no process and a quiet transcript is shown as ended (`idle`), never as `stalled`. A zombie (`<defunct>`) is not a running process.
+- A warning when a background session uses the `default` permission mode: it stops at its first permission request.
 
-**Done when:** a background session can be started, shown, attached with Ctrl+Z back to `af`, and stopped from `af`; tests use a fake `claude`; the docs say that background sessions use your limits while you are not looking.
-**Risks:** Ctrl+Z behaviour inside iTerm2 and Terminal.app (S3 list); `claude` command names can change between versions (check `claude --help` and fail softly).
+**Not done / ideas:** a clean "terminal output" block in zoom from `claude logs <id>` (it prints raw escape codes), and a sign for background sessions in the list (the details say `background`).
+**Risks:** `Ctrl+Z` in iTerm2 and Terminal.app (S3 list); `claude` command names can change between versions (check `claude --help` and fail softly).
 
 ## M3
 
