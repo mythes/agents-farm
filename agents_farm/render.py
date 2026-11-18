@@ -10,8 +10,10 @@ from typing import List, Optional
 from rich.text import Text
 
 from .model import ACTIVE, STATUS_STYLE, Agent, LimitInfo, Snapshot, Status
+from .registry import ENTRYPOINT_LABELS
 
 SPINNER = "◐◓◑◒"
+NAME_WIDTH = 22                           # width of the AGENT column in the list
 TOOL_COLORS = {
     "Read": "cyan", "Grep": "cyan", "Glob": "cyan",
     "Edit": "yellow", "Write": "yellow", "MultiEdit": "yellow", "NotebookEdit": "yellow",
@@ -122,18 +124,36 @@ def elapsed(a: Agent, now: datetime) -> str:
     return "—"
 
 
-def row_cells(a: Agent, now: datetime, frame: int, warn: float, crit: float, windows=None):
+MATCH_STYLE = "bold #000000 on #ffd75f"   # letters found by the search
+
+
+def entry_label(entrypoint: str) -> str:
+    return ENTRYPOINT_LABELS.get(entrypoint, entrypoint or "?")
+
+
+def pid_cell(a: Agent) -> Text:
+    if a.pid:
+        return Text(str(a.pid), "grey70" if a.pid_verified else "dark_orange")
+    return Text("—", "grey50")
+
+
+def row_cells(a: Agent, now: datetime, frame: int, warn: float, crit: float, windows=None, highlight=None):
     name = a.name.replace("\n", " ")
     prefix = " └ " if a.parent else ""
-    max_len = 24 - len(prefix)
+    max_len = NAME_WIDTH - len(prefix)
     if len(name) > max_len:
         name = name[: max_len - 1] + "…"
+    name_text = Text(name, name_style(a))
+    for i in highlight or ():
+        if i < len(name_text.plain) - (1 if name.endswith("…") else 0):
+            name_text.stylize(MATCH_STYLE, i, i + 1)
     ctx = a.context_tokens / context_window(a, windows) if a.context_tokens else 0
     ctx_cell = Text(f"{ctx:>4.0%}", style=pct_style(ctx, warn, crit)) if a.context_tokens else Text("   —", "grey50")
     return (
         status_cell(a, frame),
-        Text(prefix, "grey50") + Text(name, name_style(a)),
+        Text(prefix, "grey50") + name_text,
         Text(short_model(a.model), "grey70"),
+        pid_cell(a),
         Text(elapsed(a, now), "grey70"),
         ctx_cell,
     )
@@ -168,6 +188,20 @@ def detail_header(a: Agent, now: datetime, warn: float, crit: float, windows=Non
         t.append("   branch ", style="grey62")
         t.append(a.branch, style="magenta")
     t.append("\n")
+    if a.live is not None:
+        t.append("PROC  ", style="bold grey62")
+        if a.pid:
+            t.append(f"pid {a.pid}", style="bold")
+            t.append(f" · {entry_label(a.entrypoint)}", style="grey70")
+            if a.client_version:
+                t.append(f" · v{a.client_version}", style="grey70")
+            if a.live_status:
+                t.append(f" · {a.live_status}", style="cyan" if a.live_status == "busy" else "grey70")
+            if not a.pid_verified:
+                t.append(" · not verified", style="dark_orange")
+        else:
+            t.append("not running", style="grey50")
+        t.append("\n")
     win = context_window(a, windows)
     p = a.context_tokens / win if win else 0
     t.append("CTX   ", style="bold grey62")

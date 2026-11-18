@@ -15,6 +15,7 @@ Everything read from transcripts and hook payloads is **untrusted**. It can cont
 | Terminal escape injection (change the title, write to the clipboard with OSC 52, clear the screen, bidi spoofing) | `sanitize()` removes control and bidi characters when data is read (`model.py`) |
 | Textual or Rich markup injection (`[@click=…]`, `[link=…]`) in titles and toasts | `notify(..., markup=False)` and `escape()` for border titles. Table and detail cells are `rich.Text`, never parsed as markup |
 | Shell injection through the copied `claude --resume` command | The session id and the working directory are quoted with `shlex.quote` |
+| A fake or broken process file in `~/.claude/sessions` | Files are validated (the file name must match the pid, the session id has a strict pattern, size is limited), text is cleaned, and a PID counts only if the process start time matches the file. A reused PID is rejected |
 | A hook event that points the reader to any file | A transcript path from a hook must resolve (symlinks too) inside `~/.claude/projects` and end with `.jsonl` |
 | Event log readable by other local users | Directory `0700`, file `0600`, fields have a maximum length |
 | A hook that breaks the agent | The handler swallows all errors, always exits with 0, and has a 5-second timeout |

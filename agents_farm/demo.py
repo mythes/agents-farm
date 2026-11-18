@@ -21,6 +21,7 @@ class DemoStore:
 
     def __init__(self):
         self.rng = random.Random(7)  # nosec B311
+        self._next_pid = 40210       # fake process ids for the demo
         now = utcnow()
         self.agents = [
             self._mk("docs-writer", "Update the README and remove old docs", "claude-sonnet-5-5", Status.WAITING, 2, 0.34,
@@ -38,6 +39,7 @@ class DemoStore:
         ]
         sub = self._mk("explore auth usages", "Find every caller of getSession()", "claude-haiku-5-5", Status.RUNNING, 1, 0.1)
         sub.parent = self.agents[1].id
+        sub.live, sub.pid, sub.entrypoint, sub.live_status = None, None, "", ""   # subagents have no process of their own
         sub.id = self.agents[1].id + "/agent-1"
         self.agents.insert(2, sub)
         self.used = {"opus": 2_480_000, "sonnet": 7_520_000, "haiku": 2_800_000}
@@ -54,6 +56,14 @@ class DemoStore:
         a.tokens_in, a.tokens_out = a.context_tokens * 3, a.context_tokens // 6
         a.status, a.status_note = status, note
         a.hooked = True
+        if status in (Status.IDLE, Status.DONE):
+            a.live = False                       # the session is not running any more
+        else:
+            self._next_pid += 7
+            a.live, a.pid, a.pid_verified = True, self._next_pid, True
+            a.entrypoint = "claude-desktop" if self._next_pid % 2 else "cli"
+            a.live_status = "busy" if status in (Status.RUNNING, Status.THINKING) else "idle"
+            a.client_version = "2.1.325"
         t = a.started
         a.activity.append(ActivityItem(t, "you", prompt))
         for i in range(self.rng.randint(4, 10)):

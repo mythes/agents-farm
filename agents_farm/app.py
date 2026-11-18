@@ -20,17 +20,19 @@ from textual.widgets import Collapsible, DataTable, Footer, Input, Static
 
 from .model import STATUS_ORDER, Agent, Snapshot, Status
 from . import render as R
+from .search import Query
 
-NARROW_WIDTH = 100
+NARROW_WIDTH = 112   # below this width we show one panel (list or details)
 
 HELP = [
     ("↑↓ / j k", "move between agents"),
     ("enter / z", "zoom: details full screen (esc to go back)"),
     ("1 2 3", "toggle Context / Activity / Plan"),
     ("e", "expand or collapse all sections"),
-    ("/", "filter: text, status:waiting, model:opus, project:api"),
+    ("/", "search: type letters (apirf finds api-refactor); filters: status:waiting model:opus project:api"),
     ("h", "show / hide idle sessions and finished subagents"),
     ("y", "copy `claude --resume` command for the agent"),
+    ("p", "copy the PID of the agent's process"),
     ("o", "open the agent's full log in $PAGER"),
     ("r", "refresh now"),
     ("?", "this help"),
@@ -65,7 +67,7 @@ class FarmApp(App):
     Screen { layout: vertical; }
     #topbar { height: 1; background: $panel; }
     #main { height: 1fr; }
-    #left { width: 62; border: round $primary 40%; border-title-color: $text; }
+    #left { width: 68; border: round $primary 40%; border-title-color: $text; }
     #left:focus-within { border: round $primary; }
     #filter { display: none; margin: 0 0 0 0; }
     #filter.-visible { display: block; }
@@ -97,6 +99,7 @@ class FarmApp(App):
         Binding("e", "expand_all", "Expand"),
         Binding("h", "toggle_idle", "Idle"),
         Binding("y", "copy_resume", "Copy resume"),
+        Binding("p", "copy_pid", "Copy PID", show=False),
         Binding("o", "open_log", "Log"),
         Binding("r", "refresh_now", "Refresh", show=False),
         Binding("question_mark", "help", "Help"),
@@ -114,6 +117,8 @@ class FarmApp(App):
         self.col_keys: list = []
         self.show_idle = False
         self.filter_text = ""
+        self._query = Query("")
+        self._hl: Dict[str, List[int]] = {}     # agent id -> positions of matched letters in the name
         self.frame = 0
         self._prev_status: Dict[str, Status] = {}
         self._limit_alerts: Set[Tuple[str, str]] = set()
@@ -126,7 +131,7 @@ class FarmApp(App):
         yield Static(id="topbar")
         with Horizontal(id="main"):
             with Vertical(id="left"):
-                yield Input(placeholder="filter… status:waiting model:opus project:x", id="filter")
+                yield Input(placeholder="search… (apirf)   status:waiting  model:opus  project:x", id="filter")
                 yield DataTable(id="agents", cursor_type="row", zebra_stripes=False)
             with VerticalScroll(id="detail"):
                 yield Static(id="d-head")
@@ -143,8 +148,9 @@ class FarmApp(App):
         table = self.query_one(DataTable)
         self.col_keys = [
             table.add_column(" ", key="st", width=3),
-            table.add_column("AGENT", key="name", width=24),
+            table.add_column("AGENT", key="name", width=R.NAME_WIDTH),
             table.add_column("MODEL", key="model", width=10),
+            table.add_column("PID", key="pid", width=7),
             table.add_column("TIME", key="time", width=6),
             table.add_column("CTX", key="ctx", width=4),
         ]
@@ -171,7 +177,13 @@ class FarmApp(App):
         snap = self.store.refresh()
         self.call_from_thread(self._apply_snapshot, snap)
 
+    def _screen_ready(self) -> bool:
+        """False while the app is closing: timers and the data worker can still fire once."""
+        return len(self.query(DataTable)) > 0
+
     def _apply_snapshot(self, snap: Snapshot) -> None:
+        if not self._screen_ready():
+            return
         self._alert_transitions(snap)
         self.snap = snap
         self._render_table()
@@ -199,35 +211,34 @@ class FarmApp(App):
 
     # --------------------------------------------------------------- ordering
 
-    def _matches(self, a: Agent) -> bool:
-        if not self.filter_text:
-            return True
-        for token in self.filter_text.lower().split():
-            if ":" in token:
-                key, _, val = token.partition(":")
-                field = {"status": a.status.value, "model": a.model, "project": a.project + " " + a.cwd}.get(key)
-                if field is None or val not in field.lower():
-                    return False
-            elif token not in " ".join((a.name, a.project, a.prompt, a.model, a.branch)).lower():
-                return False
-        return True
-
     def _visible(self) -> Tuple[List[Agent], int]:
+        self._hl = {}
         if not self.snap:
             return [], 0
+        q = self._query
         hidden = 0
-        pool = []
+        scored: Dict[str, float] = {}
+        pool: List[Agent] = []
         for a in self.snap.agents:
-            if not self.show_idle and not self.filter_text:
+            if not self.show_idle and not q.active:
                 if a.status == Status.IDLE or (a.parent and a.status == Status.DONE):
                     hidden += 1
                     continue
-            if self._matches(a):
-                pool.append(a)
+            score = q.score(a)
+            if score is None:
+                continue
+            scored[a.id] = score
+            pool.append(a)
+            if q.terms:
+                self._hl[a.id] = q.name_offsets(a)
 
-        def key(a: Agent):
+        def urgency(a: Agent):
             ts = a.last_activity.timestamp() if a.last_activity else 0
             return (STATUS_ORDER[a.status], -ts)
+
+        def key(a: Agent):
+            # With search words the best match comes first; otherwise the most urgent agent.
+            return ((-scored[a.id]) if q.ranks else 0, *urgency(a))
 
         ids = {a.id for a in pool}
         children: Dict[str, List[Agent]] = {}
@@ -237,12 +248,15 @@ class FarmApp(App):
                 children.setdefault(a.parent, []).append(a)
             else:
                 roots.append(a)
-        # A parent inherits the urgency of its most urgent child for sorting.
+
+        # A parent takes the best score and the most urgent status of its children.
         def root_key(a: Agent):
-            k = key(a)
-            for c in children.get(a.id, []):
-                k = min(k, (key(c)[0], k[1]))
-            return k
+            kids = children.get(a.id, [])
+            u = urgency(a)
+            for c in kids:
+                u = min(u, (urgency(c)[0], u[1]))
+            best = max([scored[a.id]] + [scored[c.id] for c in kids])
+            return ((-best) if q.ranks else 0, *u)
 
         out: List[Agent] = []
         for r in sorted(roots, key=root_key):
@@ -264,7 +278,7 @@ class FarmApp(App):
             selected = self.selected_id
             table.clear()
             for a in rows:
-                table.add_row(*R.row_cells(a, now, self.frame, warn, crit, self._windows), key=a.id)
+                table.add_row(*R.row_cells(a, now, self.frame, warn, crit, self._windows, self._hl.get(a.id)), key=a.id)
             self.row_keys = keys
             if selected in keys:
                 table.move_cursor(row=keys.index(selected), animate=False)
@@ -273,11 +287,11 @@ class FarmApp(App):
             self.selected_id = keys[table.cursor_row] if keys else None
         else:
             for a in rows:
-                for col, cell in zip(self.col_keys, R.row_cells(a, now, self.frame, warn, crit, self._windows)):
+                for col, cell in zip(self.col_keys, R.row_cells(a, now, self.frame, warn, crit, self._windows, self._hl.get(a.id))):
                     table.update_cell(a.id, col, cell)
         left = self.query_one("#left")
         left.border_title = f"AGENTS ({len(rows)})"
-        left.border_subtitle = escape(f"filter: {self.filter_text}") if self.filter_text else ""
+        left.border_subtitle = escape(f"search: {self.filter_text}") if self.filter_text else ""
         self.query_one("#topbar", Static).update(R.top_bar(self.snap, len(rows), hidden))
 
     def _selected(self) -> Optional[Agent]:
@@ -311,7 +325,7 @@ class FarmApp(App):
         self.query_one("#limits", Static).update(R.limits_line(s.limits, s.updated, self.size.width, s.warn, s.crit))
 
     def _spin(self) -> None:
-        if not self.snap:
+        if not self.snap or not self._screen_ready():
             return
         self.frame += 1
         table = self.query_one(DataTable)
@@ -338,6 +352,7 @@ class FarmApp(App):
     @on(Input.Changed, "#filter")
     def _on_filter(self, event: Input.Changed) -> None:
         self.filter_text = event.value.strip()
+        self._query = Query(self.filter_text)
         if self.snap:
             self._render_table()
             self._render_detail()
@@ -405,6 +420,16 @@ class FarmApp(App):
             cmd = f"cd {shlex.quote(a.cwd)} && {cmd}"
         self.copy_to_clipboard(cmd)
         self.notify(cmd, title="copied", timeout=4, markup=False)
+
+    def action_copy_pid(self) -> None:
+        a = self._selected()
+        if not a:
+            return
+        if not a.pid:
+            self.notify("no running process for this agent", timeout=3, markup=False)
+            return
+        self.copy_to_clipboard(str(a.pid))
+        self.notify(f"pid {a.pid}", title="copied", timeout=3, markup=False)
 
     def action_open_log(self) -> None:
         a = self._selected()

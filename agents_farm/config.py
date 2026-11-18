@@ -10,6 +10,7 @@ HOME_DIR = os.path.expanduser(os.environ.get("AGENTS_FARM_HOME", "~/.agents-farm
 CONFIG_PATH = os.path.join(HOME_DIR, "config.json")
 EVENTS_PATH = os.path.join(HOME_DIR, "events.jsonl")
 CLAUDE_PROJECTS = os.path.expanduser(os.environ.get("CLAUDE_PROJECTS_DIR", "~/.claude/projects"))
+CLAUDE_SESSIONS = os.path.expanduser(os.environ.get("CLAUDE_SESSIONS_DIR", "~/.claude/sessions"))
 
 DEFAULTS = {
     # Usage window that limits reset on (Claude subscriptions use 5-hour blocks).

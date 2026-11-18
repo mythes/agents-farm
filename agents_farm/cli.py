@@ -41,6 +41,7 @@ def cmd_status(args) -> None:
             "agents": [
                 {
                     "id": a.id, "parent": a.parent, "name": a.name, "status": a.status.value,
+                    "pid": a.pid, "entrypoint": a.entrypoint,
                     "note": a.status_note, "model": a.model, "project": a.project, "cwd": a.cwd,
                     "context_tokens": a.context_tokens, "prompt": a.prompt[:500],
                     "last_activity": a.last_activity.isoformat() if a.last_activity else None,

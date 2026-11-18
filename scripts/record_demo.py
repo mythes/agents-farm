@@ -36,7 +36,7 @@ STEPS = (
     + [(2.2, b"1")]                     # open the Context section
     + [(2.5, b"z")]                     # zoom: details on the full screen
     + [(2.5, ESC)]                      # back to the list
-    + [(1.0, b"/")] + typed("opus") + [(2.2, ESC)]   # filter by model, then clear it
+    + [(1.0, b"/")] + typed("apirf") + [(2.4, ESC)]   # fuzzy search, then clear it
     + [(1.0, b"h")]                     # show idle sessions
     + [(1.8, b"?")] + [(3.0, ESC)]      # help screen
     + [(0.8, b"q")]

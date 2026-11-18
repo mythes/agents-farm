@@ -13,7 +13,8 @@ See which agents are working, what they do, how full their context is, and how m
 - **Details you can open.** Context (prompt, files, tokens), Activity (every step with time) and Plan (from TodoWrite or `update_plan`). Press `enter` for a full-screen view.
 - **Limits and context bars.** Usage per model in the current window, with warning colours and a reset timer.
 - **Alerts.** A notification and a bell when an agent starts to wait for you, fails, or a limit goes above 90%.
-- **Search and filter.** Type text, or use `status:waiting`, `model:opus`, `project:api`.
+- **Process info.** A PID column shows the process of each running session. The details also say if it runs in Claude Desktop or in the CLI.
+- **Fuzzy search.** Type a few letters (`apirf` finds `api-refactor`). You can add filters: `status:waiting`, `model:opus`, `project:api`.
 - **Terminal friendly.** Works on narrow screens, and has a one-line mode for tmux and status lines.
 
 ## Install
@@ -76,9 +77,10 @@ agents-farm status --json
 | `enter` / `z` | Zoom: details on the full screen. `esc` goes back |
 | `1` `2` `3` | Open or close Context / Activity / Plan |
 | `e` | Open or close all sections |
-| `/` | Filter: text, `status:waiting`, `model:opus`, `project:api` |
+| `/` | Search: a few letters (`apirf` finds `api-refactor`) and filters (`status:waiting`, `model:opus`, `project:api`) |
 | `h` | Show or hide idle sessions and finished subagents |
 | `y` | Copy `cd … && claude --resume <id>` (works over SSH too) |
+| `p` | Copy the PID of the agent's process |
 | `o` | Open the full log in `$PAGER` |
 | `?` | Help |
 | `q` | Quit |
@@ -86,7 +88,8 @@ agents-farm status --json
 ## Where the data comes from
 
 1. **Transcripts** in `~/.claude/projects/**/*.jsonl`. They are read step by step (only new lines). They give the prompt, the steps, files, plan, tokens, model and context size.
-2. **Hooks** (recommended). Without hooks, "waiting for permission" can only be guessed, and the agent shows as `⏸ stalled`. With hooks the status is exact (`? waiting`).
+2. **Process files** in `~/.claude/sessions/<pid>.json`, written by Claude Code. They give the PID, Desktop or CLI, and the version. A PID is shown only if that process is running and its start time matches the file, so a reused PID is never shown for the wrong session.
+3. **Hooks** (recommended). Without hooks, "waiting for permission" can only be guessed, and the agent shows as `⏸ stalled`. With hooks the status is exact (`? waiting`).
 
 ### Install the hooks
 
@@ -140,6 +143,8 @@ Text from transcripts and hooks is treated as untrusted input (prompt injection)
 ```
 agents_farm/
   transcripts.py  incremental parser for JSONL transcripts
+  registry.py     running processes from ~/.claude/sessions (PID, Desktop or CLI)
+  search.py       fuzzy search and filters
   events.py       hook handler and reader for events.jsonl
   store.py        builds a Snapshot and works out the statuses
   limits.py       usage per model in the 5-hour window

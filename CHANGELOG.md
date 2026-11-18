@@ -7,6 +7,12 @@ All notable changes are listed here. The format follows [Keep a Changelog](https
 ### Added
 - `scripts/install.sh`: installs into a private virtual environment and adds the commands `agents-farm` and the short name `af`. It checks for name collisions first (other programs on `PATH`, shell aliases and functions) and never overwrites files it did not create. Options: `--name`, `--no-alias`, `--dry-run`, `--uninstall`, `--from-git`, `--ref`, `--editable`.
 - `agents-farm --version`.
+- PID column in the agent list, and a `PROC` line in the details (PID, Desktop or CLI, version, busy or idle). Data comes from `~/.claude/sessions`. A PID is shown only if the process runs and its start time matches the file (protection against PID reuse). `p` copies the PID. `status --json` has `pid` and `entrypoint`.
+- Fuzzy search: `apirf` finds `api-refactor`. Results are sorted by match quality, and the matched letters are highlighted. Filters `status:`, `model:`, `project:` still work and can be mixed with fuzzy words.
+
+### Changed
+- The list panel is wider (68 columns) to fit the PID column, and the single-panel layout starts below 112 columns.
+- An incomplete filter such as `status:` is ignored while you type, instead of hiding every agent.
 
 ## [0.1.0] - 2026-11-18
 

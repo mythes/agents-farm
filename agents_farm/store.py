@@ -9,18 +9,30 @@ import time
 from datetime import timedelta
 from typing import Dict, List, Optional
 
-from .config import CLAUDE_PROJECTS, load_config
+from .config import CLAUDE_PROJECTS, CLAUDE_SESSIONS, load_config
 from .events import EventReader, HookState
 from .limits import compute_limits
 from .model import Agent, Snapshot, Status, utcnow
+from .registry import LiveSession, Registry
 from .transcripts import TranscriptReader, project_from_dir
 
 DISCOVER_EVERY_S = 10
 
 
 class Store:
-    def __init__(self, root: str = CLAUDE_PROJECTS, since_hours: Optional[float] = None, cfg: Optional[dict] = None):
+    def __init__(
+        self,
+        root: str = CLAUDE_PROJECTS,
+        since_hours: Optional[float] = None,
+        cfg: Optional[dict] = None,
+        sessions_dir: Optional[str] = None,
+    ):
         self.root = root
+        # Pid files describe real processes. A store pointed at a custom projects folder
+        # (tests, demos) does not read them unless a sessions folder is given too.
+        if sessions_dir is None and root == CLAUDE_PROJECTS:
+            sessions_dir = CLAUDE_SESSIONS
+        self.registry = Registry(sessions_dir)
         self.cfg = cfg or load_config()
         self.since = timedelta(hours=float(since_hours or self.cfg["since_hours"]))
         self.readers: Dict[str, TranscriptReader] = {}
@@ -83,6 +95,8 @@ class Store:
             reader.poll()
 
         now = utcnow()
+        live = self.registry.scan()
+        registry_on = self.registry.available
         agents: List[Agent] = []
         usage = []
         for reader in self.readers.values():
@@ -91,6 +105,7 @@ class Store:
             if a.last_activity is None:
                 continue
             self._derive(a, now)
+            self._attach_live(a, live.get(a.session_id) if not a.parent else None, registry_on and not a.parent)
             if a.last_activity < now - self.since:
                 continue
             agents.append(self._copy(a))
@@ -104,6 +119,16 @@ class Store:
             warn=self.cfg["warn"],
             crit=self.cfg["crit"],
         )
+
+    @staticmethod
+    def _attach_live(a: Agent, sess: Optional[LiveSession], registry_on: bool) -> None:
+        """Copy process data (pid, Desktop or CLI, version) from the registry onto the agent."""
+        a.live = bool(sess) if registry_on else None
+        a.pid = sess.pid if sess else None
+        a.entrypoint = sess.entrypoint if sess else ""
+        a.live_status = sess.status if sess else ""
+        a.client_version = sess.version if sess else ""
+        a.pid_verified = bool(sess and sess.verified)
 
     @staticmethod
     def _copy(a: Agent) -> Agent:

@@ -142,6 +142,13 @@ class Agent:
     status: Status = Status.IDLE
     status_note: str = ""
     hooked: bool = False
+    # from the live process registry (registry.py)
+    live: Optional[bool] = None      # None = unknown (no registry), True/False = process running or not
+    pid: Optional[int] = None
+    entrypoint: str = ""
+    live_status: str = ""
+    client_version: str = ""
+    pid_verified: bool = False
 
     @property
     def name(self) -> str:

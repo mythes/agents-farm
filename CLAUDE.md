@@ -17,6 +17,8 @@ scripts/make_demo.sh                # rebuild docs/demo.cast and docs/demo.gif
 | File | Job |
 |---|---|
 | `transcripts.py` | incremental parser for JSONL transcripts (`tail.py` reads files in chunks) |
+| `registry.py` | running processes from `~/.claude/sessions` (validated, PID reuse guard) |
+| `search.py` | fuzzy search and `key:value` filters (`textual.fuzzy`) |
 | `events.py` | hook handler (`agents-farm hook`) and reader for `events.jsonl` |
 | `store.py` | builds a `Snapshot`, works out each agent status |
 | `limits.py` | token usage per model in the 5-hour window (an estimate) |
