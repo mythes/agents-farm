@@ -206,5 +206,5 @@ case ":$PATH:" in
      say "  export PATH=\"$BIN_DIR:\$PATH\"" ;;
 esac
 say "Try it:      $RUN_CMD --demo"
-say "Exact 'waiting' status needs hooks: run '$RUN_CMD hooks-snippet' and see the README."
+say "The exact 'waiting' status works with no setup. Hooks are optional: they add the text of a request ('$RUN_CMD hooks-snippet', see the README)."
 say "Uninstall:   scripts/install.sh --uninstall"
