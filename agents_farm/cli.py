@@ -16,6 +16,8 @@ import shlex
 import shutil
 import sys
 
+from . import __version__
+
 
 def _store(args):
     if getattr(args, "demo", False):
@@ -86,6 +88,7 @@ def cmd_hooks_snippet(args) -> None:
 
 def main(argv=None) -> None:
     parser = argparse.ArgumentParser(prog="agents-farm", description="Terminal dashboard for Claude Code agents")
+    parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     parser.add_argument("--demo", action="store_true", help="use fake data")
     parser.add_argument("--since", type=float, default=None, help="show sessions active in the last N hours (default 12)")
     parser.add_argument("--interval", type=float, default=2.0, help="refresh interval, seconds")

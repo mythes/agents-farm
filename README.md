@@ -5,7 +5,7 @@ See which agents are working, what they do, how full their context is, and how m
 
 ![agents-farm demo](docs/demo.gif)
 
-> Try it without any real sessions: `agents-farm --demo`
+> Try it without any real sessions: `af --demo` (see [Install](#install))
 
 ## Features
 
@@ -23,23 +23,49 @@ You need Python 3.9 or newer and Claude Code. It works on macOS and Linux.
 ```bash
 git clone https://github.com/mythes/agents-farm.git
 cd agents-farm
-python3 -m venv .venv
-.venv/bin/pip install -e .
+scripts/install.sh
 ```
+
+The script makes a private virtual environment in `~/.local/share/agents-farm` and adds two commands to `~/.local/bin`: `agents-farm` and the short name **`af`**. Then run `af --demo`.
+
+If `~/.local/bin` is not on your `PATH`, the script prints the line to add to your shell config.
+
+**It never overwrites anything it did not create.** Before it makes `af`, it checks that the name is free: no other program on your `PATH`, no alias or function in your shell config. If the name is taken, it skips the short name, tells you why, and installs `agents-farm` anyway. Pick another name with `--name`:
+
+```bash
+scripts/install.sh --name farm        # use another short name
+scripts/install.sh --no-alias         # only `agents-farm`
+scripts/install.sh --dry-run          # show the plan and the checks, change nothing
+scripts/install.sh --uninstall        # remove the commands and the virtual environment
+```
+
+The script does not edit your shell config or `~/.claude/settings.json`. `--uninstall` removes only what the script created, and keeps your data in `~/.agents-farm`.
+
+Install without a clone (read the script first: [scripts/install.sh](scripts/install.sh)):
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/mythes/agents-farm/main/scripts/install.sh | bash -s -- --ref v0.1.0
+```
+
+> **Why `af`?** It is short, and at the time of writing it is free in Homebrew, PyPI and Debian. Two old tools use the same name: an npm package (the AppFog CLI) and a Rust crate (an HTTP fetch tool). If you installed one of them, or you have `alias af=…`, the script will notice and keep your command. The short name is only a link made on your machine, so the package itself does not claim `af` for everyone.
+
+For development, install in editable mode: `scripts/install.sh --editable`, or use a virtual environment with `pip install -e '.[dev]'`.
 
 ## Use
 
+After the install, `af` and `agents-farm` are the same command.
+
 ```bash
-.venv/bin/agents-farm             # your real sessions from ~/.claude/projects
-.venv/bin/agents-farm --demo      # fake data, good for a first look
-.venv/bin/agents-farm --since 24  # show sessions from the last 24 hours (default: 12)
+agents-farm             # your real sessions from ~/.claude/projects
+agents-farm --demo      # fake data, good for a first look
+agents-farm --since 24  # show sessions from the last 24 hours (default: 12)
 ```
 
 One-line status (for tmux or a status line) and JSON (for scripts):
 
 ```bash
-.venv/bin/agents-farm status          # ?1 ●2 │ sonnet 25% │ opus 7%
-.venv/bin/agents-farm status --json
+agents-farm status          # ?1 ●2 │ sonnet 25% │ opus 7%
+agents-farm status --json
 ```
 
 ## Keys
@@ -67,7 +93,7 @@ One-line status (for tmux or a status line) and JSON (for scripts):
 Print the block for your `~/.claude/settings.json`:
 
 ```bash
-.venv/bin/agents-farm hooks-snippet
+agents-farm hooks-snippet
 ```
 
 Add the content of `"hooks"` to your settings. If you already have hooks for the same events, put the new entries next to the old ones. The hook writes one line to `~/.agents-farm/events.jsonl` (about 140 ms per call). It never fails and always exits with code 0. When it works, the top bar shows `hooks ✓`.

@@ -8,6 +8,7 @@ A Textual terminal dashboard that watches Claude Code sessions: status, context,
 .venv/bin/pip install -e '.[dev]'   # set up
 .venv/bin/agents-farm --demo        # try the UI with fake data
 scripts/check.sh                    # tests + bandit + whitespace (run before every commit)
+scripts/install.sh --dry-run        # show what the installer would do (adds the commands agents-farm and af)
 scripts/make_demo.sh                # rebuild docs/demo.cast and docs/demo.gif
 ```
 
@@ -22,6 +23,7 @@ scripts/make_demo.sh                # rebuild docs/demo.cast and docs/demo.gif
 | `render.py` | Rich rendering, no Textual imports |
 | `app.py` | Textual UI |
 | `demo.py` | fake data for `--demo` and the recording |
+| `scripts/install.sh` | installer with a collision guard (tests: `tests/test_installer.py`, use `--dry-run`) |
 
 ## Rules you must follow
 
@@ -34,8 +36,9 @@ scripts/make_demo.sh                # rebuild docs/demo.cast and docs/demo.gif
 7. **Do not guess about Claude Code internals.** Files like `~/.claude/sessions/*.json` are not documented. Validate every field and fail softly.
 8. **Escapes can turn into real characters.** If you write `\u202e` or similar in a file, check that the file does not contain the literal character (bidi and Cyrillic characters break `test_repo_hygiene.py` and are unsafe in source). Build such values with `chr()`.
 9. **Pin every GitHub Action to a full commit SHA** (with the tag in a comment). Keep workflow `permissions` as small as possible. A test checks the pins.
-10. Python 3.9 compatible (CI runs 3.9 and 3.12). Use `from __future__ import annotations`.
-11. Ask before you push, tag, publish, change repo visibility, or edit the user's `~/.claude/settings.json`.
+10. **The installer must never overwrite a file or command it did not create.** Keep the collision checks and the `--dry-run` tests when you change `scripts/install.sh`. Do not add `af` as a pip entry point: the short name is only a local link, so the package does not claim it for everyone.
+11. Python 3.9 compatible (CI runs 3.9 and 3.12). Use `from __future__ import annotations`.
+12. Ask before you push, tag, publish, change repo visibility, or edit the user's `~/.claude/settings.json`.
 
 ## Skills in `.claude/skills/`
 
