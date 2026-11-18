@@ -20,7 +20,7 @@ scripts/make_demo.sh                # rebuild docs/demo.cast and docs/demo.gif
 | `registry.py` | running processes from `~/.claude/sessions` (validated, PID reuse guard) |
 | `search.py` | fuzzy search and `key:value` filters (`textual.fuzzy`) |
 | `events.py` | hook handler (`agents-farm hook`) and reader for `events.jsonl` |
-| `store.py` | builds a `Snapshot`, works out each agent status |
+| `store.py` | builds a `Snapshot`, works out each agent status (order: pid-file status, then hooks, then a guess from the transcript) |
 | `limits.py` | token usage per model in the 5-hour window (an estimate) |
 | `render.py` | Rich rendering, no Textual imports |
 | `app.py` | Textual UI |

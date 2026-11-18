@@ -352,9 +352,10 @@ def top_bar(snap: Snapshot, shown: int, hidden_idle: int) -> Text:
     t.append("   │ ", style="grey35")
     if snap.source == "demo":
         t.append("DEMO data", style="bold magenta")
-    elif snap.hooks_active:
-        t.append("hooks ✓", style="green")
+    elif snap.live_status or snap.hooks_active:
+        # Where the exact status comes from: the pid files of the processes, and/or hooks.
+        t.append(" ".join(label for label, on in (("live ✓", snap.live_status), ("hooks ✓", snap.hooks_active)) if on), style="green")
     else:
-        t.append("hooks ✗ status approximated", style="grey50")
+        t.append("status approximated (no pid files, no hooks)", style="grey50")
     t.append(f"   {snap.updated.astimezone().strftime('%H:%M:%S')}", style="grey50")
     return t

@@ -17,6 +17,7 @@ from .registry import LiveSession, Registry
 from .transcripts import TranscriptReader, project_from_dir
 
 DISCOVER_EVERY_S = 10
+LIVE_STATES = ('idle', 'busy', 'waiting')   # the values of `status` in the pid files that we act on
 
 
 class Store:
@@ -104,8 +105,8 @@ class Store:
             a = reader.agent
             if a.last_activity is None:
                 continue
-            self._derive(a, now)
             self._attach_live(a, live.get(a.session_id) if not a.parent else None, registry_on and not a.parent)
+            self._derive(a, now)
             if a.last_activity < now - self.since:
                 continue
             agents.append(self._copy(a))
@@ -116,6 +117,7 @@ class Store:
             limits=limits,
             updated=now,
             hooks_active=self.events.active,
+            live_status=any(a.live_status in LIVE_STATES for a in agents),
             warn=self.cfg["warn"],
             crit=self.cfg["crit"],
         )
@@ -140,6 +142,33 @@ class Store:
         return c
 
     # ------------------------------------------------------------------- status
+
+    def _from_pid_file(self, a: Agent, st: Status, note: str, age: float, hook: Optional[HookState]):
+        """Status from the `status` field of the pid file (idle / busy / waiting), or None.
+
+        Claude Code updates it within a few milliseconds of the hooks, and it says
+        "waiting" about 6 s before the Notification hook arrives. It needs no setup.
+        Other values (starting, blocked, ...) and missing files give None, so the guess
+        from the transcript is used.
+        """
+        if not a.pid or a.live_status not in LIVE_STATES:
+            return None
+        if a.live_status == "waiting":
+            hook_note = ""
+            if hook:
+                hook_status, hook_text = hook.status()
+                if hook_status == Status.WAITING:
+                    hook_note = hook_text           # for example "permission: Bash"
+            return Status.WAITING, hook_note or "waiting for your answer"
+        if a.live_status == "busy":
+            if age >= float(self.cfg.get("busy_stalled_s", 600)):
+                return Status.STALLED, f"busy, but no new output for {int(age // 60)} min"
+            thinking = a.last_kind == "user" and not a.pending_tools
+            return (Status.THINKING if thinking else Status.RUNNING), ""
+        # idle: the process waits for the next prompt. A failed turn stays visible.
+        if st == Status.ERROR:
+            return st, note
+        return Status.DONE, ""
 
     def _derive(self, a: Agent, now) -> None:
         cfg = self.cfg
@@ -166,14 +195,17 @@ class Store:
 
         hook: Optional[HookState] = self.events.latest.get(a.session_id) if a.parent is None else None
         a.hooked = hook is not None
-        if hook and hook.ts >= a.last_activity - timedelta(seconds=2):
+        known = self._from_pid_file(a, st, note, age, hook)
+        if known is not None:
+            st, note = known              # the process itself says what it does: this wins
+        elif hook and hook.ts >= a.last_activity - timedelta(seconds=2):
             hst, hnote = hook.status()
             if hst is not None:
                 st, note = hst, hnote or note
 
         if st == Status.DONE and age > float(cfg["done_visible_min"]) * 60:
             st = Status.IDLE
-        if st in (Status.STALLED, Status.WAITING) and age > 6 * 3600:
+        if known is None and st in (Status.STALLED, Status.WAITING) and age > 6 * 3600:
             st, note = Status.IDLE, ""
 
         a.status, a.status_note = st, note

@@ -8,6 +8,7 @@ All notable changes are listed here. The format follows [Keep a Changelog](https
 - `scripts/install.sh`: installs into a private virtual environment and adds the commands `agents-farm` and the short name `af`. It checks for name collisions first (other programs on `PATH`, shell aliases and functions) and never overwrites files it did not create. Options: `--name`, `--no-alias`, `--dry-run`, `--uninstall`, `--from-git`, `--ref`, `--editable`.
 - `agents-farm --version`.
 - PID column in the agent list, and a `PROC` line in the details (PID, Desktop or CLI, version, busy or idle). Data comes from `~/.claude/sessions`. A PID is shown only if the process runs and its start time matches the file (protection against PID reuse). `p` copies the PID. `status --json` has `pid` and `entrypoint`.
+- Live status from the process files: the agent status now comes from the `status` field (`idle`, `busy`, `waiting`) of `~/.claude/sessions/<pid>.json`. The exact `? waiting` works with no hooks installed, and about 6 seconds sooner than the notification hook. A hook only adds the text of the request. A `busy` agent is no longer shown as stalled after 90 s: it is shown as stalled only after 10 minutes with no new output (`busy_stalled_s`). A waiting agent stays `waiting` however long it waits. The top bar shows `live ✓` and/or `hooks ✓`.
 - Fuzzy search: `apirf` finds `api-refactor`. Results are sorted by match quality, and the matched letters are highlighted. Filters `status:`, `model:`, `project:` still work and can be mixed with fuzzy words.
 
 ### Changed

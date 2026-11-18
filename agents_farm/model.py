@@ -194,3 +194,4 @@ class Snapshot:
     warn: float = 0.7
     crit: float = 0.9
     source: str = "claude-code"
+    live_status: bool = False        # True if any agent's status comes from a pid file

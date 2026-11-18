@@ -32,6 +32,9 @@ DEFAULTS = {
     # Only show sessions touched within this many hours.
     "since_hours": 12,
     "stalled_after_s": 90,
+    # A session the pid file calls "busy" is normal for a long time (builds, tests).
+    # Only after this many seconds without any new output is it shown as stalled.
+    "busy_stalled_s": 600,
     "done_visible_min": 30,
     "notify": True,
 }

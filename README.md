@@ -88,10 +88,10 @@ agents-farm status --json
 ## Where the data comes from
 
 1. **Transcripts** in `~/.claude/projects/**/*.jsonl`. They are read step by step (only new lines). They give the prompt, the steps, files, plan, tokens, model and context size.
-2. **Process files** in `~/.claude/sessions/<pid>.json`, written by Claude Code. They give the PID, Desktop or CLI, and the version. A PID is shown only if that process is running and its start time matches the file, so a reused PID is never shown for the wrong session.
-3. **Hooks** (recommended). Without hooks, "waiting for permission" can only be guessed, and the agent shows as `⏸ stalled`. With hooks the status is exact (`? waiting`).
+2. **Process files** in `~/.claude/sessions/<pid>.json`, written by Claude Code. They give the PID, Desktop or CLI, and the version. A PID is shown only if that process is running and its start time matches the file, so a reused PID is never shown for the wrong session. Their `status` field (`idle`, `busy`, `waiting`) is also the **live status** of the agent: the exact `? waiting` needs no setup, and it appears about 6 seconds sooner than the Claude Code notification hook.
+3. **Hooks** (optional). The status no longer depends on them. When hooks are installed, they add the text of the request (for example `permission: Bash`), and they are the only source for sessions that have no process file (older Claude Code versions). Without a process file and without hooks, "waiting for permission" can only be guessed, and the agent can show as `⏸ stalled`.
 
-### Install the hooks
+### Install the hooks (optional)
 
 Print the block for your `~/.claude/settings.json`:
 
@@ -99,7 +99,7 @@ Print the block for your `~/.claude/settings.json`:
 agents-farm hooks-snippet
 ```
 
-Add the content of `"hooks"` to your settings. If you already have hooks for the same events, put the new entries next to the old ones. The hook writes one line to `~/.agents-farm/events.jsonl` (about 140 ms per call). It never fails and always exits with code 0. When it works, the top bar shows `hooks ✓`.
+Add the content of `"hooks"` to your settings. If you already have hooks for the same events, put the new entries next to the old ones. The hook writes one line to `~/.agents-farm/events.jsonl` (about 140 ms per call). It never fails and always exits with code 0. The top bar tells you where the status comes from: `live ✓` (process files), `hooks ✓`, or both.
 
 ## Limits: please read
 
@@ -122,9 +122,12 @@ All keys are optional. The file is `~/.agents-farm/config.json`:
   "crit": 0.9,
   "since_hours": 12,
   "notify": true,
+  "busy_stalled_s": 600,
   "context_window": {"default": 200000, "opus-5": 1000000, "sonnet-5": 1000000}
 }
 ```
+
+`busy_stalled_s` is how long a `busy` agent may print nothing before it is shown as stalled (default 10 minutes).
 
 `context_window` sets the context size by a part of the model id (the longest match wins). Transcripts do not store this size, so check the number with `/context` in Claude Code and change it here if needed. If a session goes over its window, the window grows by itself, so the bar never shows more than 100%.
 
