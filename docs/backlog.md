@@ -55,8 +55,8 @@ Checked on a real machine with Claude Code 2.1.319 / 2.1.325. These facts change
 
 | M | Content | Tasks | Size |
 |---|---|---|---|
-| **M0** | Spikes: remove 4 unknowns before we build | S1–S4 | S |
-| **M1** | Session registry, PID, fuzzy search, live status, kill | T0, T1, T5, T8, T2 | M+S+S+S+M |
+| **M0** | Spikes: remove 4 unknowns before we build. **Done** | S1–S4 | S |
+| **M1** | Session registry, PID, fuzzy search, live status, kill. **Done in v0.2.0** | T0, T1, T5, T8, T2 | M+S+S+S+M |
 | **M2** | Start and resume sessions | T3, T4 | M+M |
 | **M3** | Real limits and percentages | T6, T7 | L+M |
 
@@ -159,6 +159,8 @@ Checked on a real machine with Claude Code 2.1.319 / 2.1.325. These facts change
 ## M2
 
 ### T3 · New session hotkey (CLI claude) · M
+
+**Done in v0.2.0.** Still to check by hand: iTerm2 and Terminal.app.
 
 **Possible:** ✅ the same way as `o` (pager): `App.suspend()` + `subprocess`. S3 passed in the Claude app terminal; check iTerm2 and Terminal.app by hand.
 

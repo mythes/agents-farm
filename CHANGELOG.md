@@ -4,6 +4,10 @@ All notable changes are listed here. The format follows [Keep a Changelog](https
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-11-18
+
+See every running Claude Code process and its live status, stop it safely, and start a new session from the dashboard.
+
 ### Added
 - `scripts/install.sh`: installs into a private virtual environment and adds the commands `agents-farm` and the short name `af`. It checks for name collisions first (other programs on `PATH`, shell aliases and functions) and never overwrites files it did not create. Options: `--name`, `--no-alias`, `--dry-run`, `--uninstall`, `--from-git`, `--ref`, `--editable`.
 - `agents-farm --version`.
@@ -16,6 +20,19 @@ All notable changes are listed here. The format follows [Keep a Changelog](https
 ### Changed
 - The list panel is wider (68 columns) to fit the PID column, and the single-panel layout starts below 112 columns.
 - An incomplete filter such as `status:` is ignored while you type, instead of hiding every agent.
+- The installer hint no longer says that hooks are needed for the `waiting` status.
+- CI uses newer versions of the GitHub Actions (checkout, setup-python, gitleaks, CodeQL), still pinned to full commit SHAs.
+
+### Fixed
+- No `NoMatches` error from the spinner or the data refresh while the app closes.
+
+### Security
+- Control characters are now removed with a translate table instead of a wide regex range (found by CodeQL). The result is the same.
+
+### Known limits
+- Usage limits are still an estimate. Real plan limits are planned: [#11](https://github.com/mythes/agents-farm/issues/11).
+- You cannot resume a session from the dashboard yet ([#10](https://github.com/mythes/agents-farm/issues/10)).
+- The `n` key is tested by hand only in the Claude app terminal. iTerm2 and Terminal.app are not tested yet.
 
 ## [0.1.0] - 2026-11-18
 
@@ -42,4 +59,6 @@ First release. A terminal dashboard for Claude Code agents.
 - Usage limits are an estimate. Real plan limits (5-hour and weekly) are planned: [#11](https://github.com/mythes/agents-farm/issues/11).
 - There is no PID column, kill, start or resume yet. See the [backlog](docs/backlog.md).
 
+[Unreleased]: https://github.com/mythes/agents-farm/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/mythes/agents-farm/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/mythes/agents-farm/releases/tag/v0.1.0

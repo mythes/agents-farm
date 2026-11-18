@@ -45,7 +45,7 @@ The script does not edit your shell config or `~/.claude/settings.json`. `--unin
 Install without a clone (read the script first: [scripts/install.sh](scripts/install.sh)):
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/mythes/agents-farm/main/scripts/install.sh | bash -s -- --ref v0.1.0
+curl -fsSL https://raw.githubusercontent.com/mythes/agents-farm/main/scripts/install.sh | bash -s -- --ref v0.2.0
 ```
 
 > **Why `af`?** It is short, and at the time of writing it is free in Homebrew, PyPI and Debian. Two old tools use the same name: an npm package (the AppFog CLI) and a Rust crate (an HTTP fetch tool). If you installed one of them, or you have `alias af=…`, the script will notice and keep your command. The short name is only a link made on your machine, so the package itself does not claim `af` for everyone.
@@ -176,7 +176,9 @@ Text from transcripts and hooks is treated as untrusted input (prompt injection)
 ```
 agents_farm/
   transcripts.py  incremental parser for JSONL transcripts
+  tail.py         reads files in chunks
   registry.py     running processes from ~/.claude/sessions (PID, Desktop or CLI)
+  killer.py       safe stop of a process (checks before every signal)
   search.py       fuzzy search and filters
   events.py       hook handler and reader for events.jsonl
   store.py        builds a Snapshot and works out the statuses
@@ -184,6 +186,7 @@ agents_farm/
   render.py       Rich rendering of rows, details, limits (no Textual)
   app.py          Textual UI
   demo.py         fake data
+  config.py       settings from the config file
   cli.py          command line
 docs/             design notes and backlog
 scripts/          checks and demo recording
@@ -192,7 +195,7 @@ scripts/          checks and demo recording
 
 ## Roadmap
 
-See [docs/backlog.md](docs/backlog.md) and the [issues](https://github.com/mythes/agents-farm/issues): PID column, kill, start and resume sessions, fuzzy search, real limits.
+See [docs/backlog.md](docs/backlog.md) and the [issues](https://github.com/mythes/agents-farm/issues). Done in v0.2.0: PID column, live status, fuzzy search, stop with `x`, start a new session with `n`. Next: resume a session, then real limits and the share of the limits per session.
 
 ## Contributing
 
