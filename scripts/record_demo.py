@@ -31,18 +31,21 @@ def typed(text, gap=0.11):
 
 # (seconds to wait before sending, bytes to send). The demo data is fake.
 STEPS = (
-    [(3.5, b"")]                        # first look: the agent that waits for you is on top
-    + [(1.4, b"j"), (1.0, b"j"), (1.0, b"j")]   # move down to the running agent (plan + activity)
+    [(2.6, b"")]                        # first look: the agent that waits for you is on top
+    + [(1.2, b"j"), (0.9, b"j"), (0.9, b"j")]   # move down to the running agent (plan + activity)
     + [(2.2, b"1")]                     # open the Context section
-    + [(2.5, b"z")]                     # zoom: details on the full screen
-    + [(2.5, ESC)]                      # back to the list
-    + [(1.0, b"/")] + typed("apirf") + [(2.4, ESC)]   # fuzzy search, then clear it
-    + [(1.2, b"n")] + typed("apirf") + [(1.8, b"\t")]   # new session: fuzzy folder, Tab opens it
+    + [(2.0, b"z")]                     # zoom: details on the full screen
+    + [(1.8, ESC)]                      # back to the list
+    + [(1.0, b"/")] + typed("apirf") + [(1.8, ESC)]   # fuzzy search, then clear it
+    + [(1.0, b"n")] + typed("apir") + [(1.8, b"\t")]   # new session: fuzzy folder, Tab opens it
     + [(1.8, b"\x01")] + typed("son") + [(1.4, ENTER)]  # Ctrl+A: pick a model
     + [(1.0, b"\x13"), (1.0, b"\x04")]                  # Ctrl+S mode, Ctrl+D worktree
-    + [(2.2, ESC)]                      # cancel: the demo never starts claude
-    + [(1.0, b"h")]                     # show idle sessions
-    + [(1.8, b"?")] + [(3.0, ESC)]      # help screen
+    + [(1.0, b"\x02")]                  # Ctrl+B: start in the background
+    + [(1.0, b"\x06")] + typed("fix tests", gap=0.06)   # Ctrl+F: a first prompt
+    + [(1.8, ESC)]                      # cancel: the demo never starts claude
+    + [(1.0, b"/")] + typed("mig") + [(0.8, ENTER)]   # find the background session
+    + [(1.4, b"a")] + [(2.4, ESC)]      # attach: the hint says how to come back (Ctrl+Z)
+    + [(0.8, ESC)]                      # clear the search
     + [(0.8, b"q")]
 )
 

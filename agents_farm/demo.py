@@ -42,6 +42,7 @@ class DemoStore:
         sub.live, sub.pid, sub.entrypoint, sub.live_status = None, None, "", ""   # subagents have no process of their own
         sub.id = self.agents[1].id + "/agent-1"
         self.agents.insert(2, sub)
+        next(x for x in self.agents if x.id == "demo-migrations").background = True   # a background session: `a` works on it
         self.used = {"opus": 2_480_000, "sonnet": 7_520_000, "haiku": 2_800_000}
         self.reset = now + timedelta(hours=1, minutes=12)
 
