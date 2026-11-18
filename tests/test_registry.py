@@ -114,7 +114,7 @@ def test_key_files_and_other_files_are_ignored(tmp_path):
 
 def _transcript(projects, session_id):
     folder = projects / "-tmp-proj"
-    folder.mkdir(parents=True)
+    folder.mkdir(parents=True, exist_ok=True)
     ts = time.strftime("%Y-%m-%dT%H:%M:%S.000Z", time.gmtime())
     lines = [{"type": "user", "timestamp": ts, "cwd": "/tmp/proj", "message": {"role": "user", "content": "hello"}}]
     (folder / f"{session_id}.jsonl").write_text("\n".join(json.dumps(x) for x in lines) + "\n")

@@ -82,9 +82,19 @@ agents-farm status --json
 | `y` | Copy `cd … && claude --resume <id>` (works over SSH too) |
 | `p` | Copy the PID of the agent's process |
 | `x` | Stop the agent's process. It asks first, and the default answer is No |
+| `n` | Start a new `claude` session in this terminal (asks for folder, model, permission mode, worktree) |
 | `o` | Open the full log in `$PAGER` |
 | `?` | Help |
 | `q` | Quit |
+
+## Starting a new session
+
+Press `n`. A dialog asks for the folder (it starts with the folder of the selected agent, and `→` completes from your recent projects), the model, the permission mode (`default`, `acceptEdits` or `plan`) and whether to work in a new git worktree (`-w`). Enter starts `claude` in this same terminal. agents-farm steps aside while it runs. When you leave `claude` (`/exit`), the dashboard comes back and selects the new session.
+
+- A folder that does not exist, or a bad model name, is shown in the dialog and nothing starts.
+- Modes that skip permission checks are not offered. You can still pass any flag yourself with `claude_args` in the config.
+- `claude` is looked up on `PATH`, then in `~/.local/bin`. Set `claude_bin` in the config to use another program.
+- In `--demo` mode nothing is started.
 
 ## Stopping an agent
 
@@ -137,9 +147,15 @@ All keys are optional. The file is `~/.agents-farm/config.json`:
   "notify": true,
   "busy_stalled_s": 600,
   "allow_kill": true,
+  "claude_bin": "",
+  "claude_args": [],
+  "claude_env": {},
+  "new_model": "",
   "context_window": {"default": 200000, "opus-5": 1000000, "sonnet-5": 1000000}
 }
 ```
+
+`claude_args` are extra flags for every new session (a list of strings), `claude_env` are extra environment variables, and `new_model` is the default model in the dialog.
 
 `busy_stalled_s` is how long a `busy` agent may print nothing before it is shown as stalled (default 10 minutes).
 

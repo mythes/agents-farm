@@ -87,6 +87,10 @@ class Store:
 
     # ------------------------------------------------------------------ refresh
 
+    def rediscover(self) -> None:
+        """Look for new transcript files on the next refresh (for example after `claude` ran)."""
+        self._last_discover = None
+
     def refresh(self) -> Snapshot:
         self.events.poll()
         if self._last_discover is None or time.monotonic() - self._last_discover > DISCOVER_EVERY_S:

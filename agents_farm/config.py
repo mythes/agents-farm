@@ -40,6 +40,11 @@ DEFAULTS = {
     "notify": True,
     # The x key (stop an agent's process) always asks first. Set to false to turn it off.
     "allow_kill": True,
+    # The n key starts `claude` in this terminal. "" = look for `claude` on PATH.
+    "claude_bin": "",
+    "claude_args": [],       # extra flags for every new session, for example ["--verbose"]
+    "claude_env": {},        # extra environment variables for `claude`
+    "new_model": "",         # default model in the new-session dialog ("" = Claude's default)
 }
 
 

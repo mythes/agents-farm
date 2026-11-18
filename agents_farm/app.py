@@ -17,10 +17,11 @@ from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.screen import ModalScreen
-from textual.widgets import Collapsible, DataTable, Footer, Input, Static
+from textual.suggester import SuggestFromList
+from textual.widgets import Checkbox, Collapsible, DataTable, Footer, Input, Select, Static
 
 from .model import STATUS_ORDER, Agent, Snapshot, Status
-from . import killer
+from . import killer, runner
 from . import render as R
 from .search import Query
 
@@ -36,6 +37,7 @@ HELP = [
     ("y", "copy `claude --resume` command for the agent"),
     ("p", "copy the PID of the agent's process"),
     ("x", "stop the agent's process (asks first; the default answer is No)"),
+    ("n", "new `claude` session in this terminal (asks for folder, model, permission mode)"),
     ("o", "open the agent's full log in $PAGER"),
     ("r", "refresh now"),
     ("?", "this help"),
@@ -91,6 +93,51 @@ class ConfirmKill(ModalScreen[bool]):
         self.dismiss(False)
 
 
+class NewSession(ModalScreen):
+    """Asks what to start. Dismisses with a dict, or None when cancelled. Checks input before it closes."""
+
+    BINDINGS = [Binding("escape", "cancel", "Cancel")]
+
+    def __init__(self, cwd: str, recent: List[str], model: str):
+        super().__init__()
+        self._cwd, self._recent, self._model = cwd, recent, model
+
+    def compose(self) -> ComposeResult:
+        with Vertical(id="new-body"):
+            yield Static(Text("Start a new claude session", style="bold"))
+            yield Static(Text("Folder (→ accepts a suggestion from recent projects)", style="grey70"))
+            yield Input(self._cwd, id="ns-dir", suggester=SuggestFromList(self._recent, case_sensitive=True))
+            yield Static(Text("Model (empty = Claude's default)", style="grey70"))
+            yield Input(self._model, id="ns-model", placeholder="opus, sonnet, claude-opus-5-5")
+            yield Static(Text("Permission mode", style="grey70"))
+            yield Select([(m, m) for m in runner.PERMISSION_MODES], value="default", allow_blank=False, id="ns-mode")
+            yield Checkbox("Work in a new git worktree (-w)", id="ns-worktree")
+            yield Static("", id="ns-error")
+            yield Static(Text("enter in a text field: start   esc: cancel", style="grey50"))
+
+    def on_mount(self) -> None:
+        self.query_one("#ns-dir", Input).focus()
+
+    @on(Input.Submitted)
+    def _submit(self) -> None:
+        try:
+            folder = runner.check_dir(self.query_one("#ns-dir", Input).value)
+            model = runner.check_model(self.query_one("#ns-model", Input).value)
+        except runner.RunError as exc:
+            self.query_one("#ns-error", Static).update(Text(str(exc), style="bold red"))
+            return
+        mode = self.query_one("#ns-mode", Select).value
+        self.dismiss({
+            "cwd": folder,
+            "model": model,
+            "mode": mode if isinstance(mode, str) else "default",
+            "worktree": self.query_one("#ns-worktree", Checkbox).value,
+        })
+
+    def action_cancel(self) -> None:
+        self.dismiss(None)
+
+
 class FarmApp(App):
     TITLE = "agents-farm"
     CSS = """
@@ -113,7 +160,10 @@ class FarmApp(App):
     Screen.-narrow #left { width: 1fr; }
     Screen.-zoom #left { display: none; }
     Screen.-zoom #detail { display: block; }
-    HelpScreen, ConfirmKill { align: center middle; }
+    HelpScreen, ConfirmKill, NewSession { align: center middle; }
+    #new-body { width: 78; height: auto; padding: 1 2; border: round $primary; background: $panel; }
+    #new-body Input { margin-bottom: 1; }
+    #ns-error { height: auto; }
     #kill-body { width: 82; height: auto; padding: 1 2; border: round $error; background: $panel; }
     #help-body { width: 78; height: auto; padding: 1 2; border: round $primary; background: $panel; }
     """
@@ -132,6 +182,7 @@ class FarmApp(App):
         Binding("y", "copy_resume", "Copy resume"),
         Binding("p", "copy_pid", "Copy PID", show=False),
         Binding("x", "kill", "Stop process", show=False),
+        Binding("n", "new_session", "New session"),
         Binding("o", "open_log", "Log"),
         Binding("r", "refresh_now", "Refresh", show=False),
         Binding("question_mark", "help", "Help"),
@@ -155,6 +206,7 @@ class FarmApp(App):
         self._prev_status: Dict[str, Status] = {}
         self._limit_alerts: Set[Tuple[str, str]] = set()
         self._first = True
+        self._pick_new: Optional[Set[str]] = None   # ids known before `claude` started
         self._windows = getattr(store, "cfg", {}).get("context_window")
 
     # ------------------------------------------------------------------ layout
@@ -218,6 +270,11 @@ class FarmApp(App):
             return
         self._alert_transitions(snap)
         self.snap = snap
+        if self._pick_new is not None:
+            fresh = [a for a in snap.agents if a.id not in self._pick_new and not a.parent]
+            if fresh:
+                self.selected_id = max(fresh, key=lambda a: a.last_activity.timestamp() if a.last_activity else 0).id
+            self._pick_new = None
         self._render_table()
         self._render_detail()
         self._render_limits()
@@ -526,6 +583,50 @@ class FarmApp(App):
             )
         else:
             self.notify(f"pid {target.pid} is still running after SIGKILL", severity="error", timeout=8, markup=False)
+
+    # ------------------------------------------------------------ new session
+
+    def _recent_dirs(self) -> List[str]:
+        seen: List[str] = []
+        for a in (self.snap.agents if self.snap else []):
+            if a.cwd and a.cwd not in seen and os.path.isdir(a.cwd):
+                seen.append(a.cwd)
+        return seen[:30]
+
+    def action_new_session(self) -> None:
+        """n: ask what to start, then give the terminal to `claude` until it exits."""
+        a = self._selected()
+        cwd = (a.cwd if a and a.cwd and os.path.isdir(a.cwd) else "") or os.getcwd()
+        model = str(getattr(self.store, "cfg", {}).get("new_model") or "")
+        self.push_screen(NewSession(cwd, self._recent_dirs(), model), self._start_session)
+
+    def _start_session(self, choice) -> None:
+        if not choice:
+            return
+        if self.snap and self.snap.source == "demo":
+            self.notify("demo mode: no session was started", timeout=4, markup=False)
+            return
+        cfg = getattr(self.store, "cfg", {})
+        try:
+            claude = runner.find_claude(cfg)
+            args = runner.build_args(choice["model"], choice["mode"], choice["worktree"], cfg.get("claude_args"))
+            env = runner.build_env(cfg.get("claude_env"))
+            cwd = runner.check_dir(choice["cwd"])
+        except runner.RunError as exc:
+            self.notify(str(exc), title="not started", severity="error", timeout=8, markup=False)
+            return
+        before = {x.id for x in self.snap.agents} if self.snap else set()
+        try:
+            with self.suspend():
+                code = runner.run_interactive(cwd, args, claude, env)
+        except runner.RunError as exc:
+            self.notify(str(exc), title="not started", severity="error", timeout=8, markup=False)
+            return
+        self._pick_new = before
+        getattr(self.store, "rediscover", lambda: None)()
+        self.refresh_data()
+        if code != 0:
+            self.notify(f"claude exited with code {code}", severity="warning", timeout=6, markup=False)
 
     def action_open_log(self) -> None:
         a = self._selected()

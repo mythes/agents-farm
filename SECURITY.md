@@ -29,6 +29,7 @@ Everything read from transcripts and hook payloads is **untrusted**. It can cont
 - The `o` log writes prompt text to a temporary file for a short time (owner only, deleted on exit).
 - Anyone who can already write to your home directory can send fake events. They can only change statuses. There is no way to run code.
 - The `x` key sends a signal only to a process that matches its pid file. It cannot protect you from stopping a session whose work you wanted to keep: that is what the confirmation and the red warning are for.
+- The `n` key starts `claude` with arguments you choose, in a folder you choose. `claude_args` and `claude_env` come from your own config file and are passed on as they are. If someone can edit that file, they can already run code as you.
 - `~/.agents-farm/actions.log` only grows and is not rotated.
 - Usage limits are estimates, not data from Anthropic.
 
