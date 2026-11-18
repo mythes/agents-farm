@@ -4,6 +4,10 @@ All notable changes are listed here. The format follows [Keep a Changelog](https
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-11-18
+
+A multi-line first prompt and clearer key hints in the new-session dialog.
+
 ### Changed
 - The first prompt in the `n` dialog is a multi-line editor. `Ctrl+F` hides the folder list and gives the whole area to the prompt: long lines wrap, `Enter` adds a new line, and `Ctrl+F` goes back to the folders. `Ctrl+E` starts the session from anywhere in the dialog, with or without a prompt. The arrow keys, `Tab` and `→` belong to the text there. When the editor is closed, one line under the list shows the prompt. The key hints at the bottom of the dialog have two levels: options and start (`^a` `^s` `^d` `^b` `^e`), and navigation (`tab`, `^f`, `esc`). Each group has its own shade (amber for options, blue for moving, green for `Start`, red for `Cancel`), and the values on the options line are coloured by meaning (a changed value stands out, `off` and `default` are quiet).
 
@@ -88,7 +92,8 @@ First release. A terminal dashboard for Claude Code agents.
 - Usage limits are an estimate. Real plan limits (5-hour and weekly) are planned: [#11](https://github.com/mythes/agents-farm/issues/11).
 - There is no PID column, kill, start or resume yet. See the [backlog](docs/backlog.md).
 
-[Unreleased]: https://github.com/mythes/agents-farm/compare/v0.4.1...HEAD
+[Unreleased]: https://github.com/mythes/agents-farm/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/mythes/agents-farm/compare/v0.4.1...v0.5.0
 [0.4.1]: https://github.com/mythes/agents-farm/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/mythes/agents-farm/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/mythes/agents-farm/compare/v0.2.0...v0.3.0
