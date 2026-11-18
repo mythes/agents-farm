@@ -1,0 +1,19 @@
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "agents-farm"
+version = "0.1.0"
+description = "TUI dashboard for running Claude Code agents: status, context, model limits"
+requires-python = ">=3.9"
+dependencies = ["textual>=0.80"]
+
+[project.scripts]
+agents-farm = "agents_farm.cli:main"
+
+[project.optional-dependencies]
+dev = ["pytest", "bandit"]
+
+[tool.setuptools]
+packages = ["agents_farm"]
