@@ -109,34 +109,27 @@ def transcript(folder_path, prompt, age, ending, model, origin, sid, title=""):
 
 
 def down(base):
+    """Stop the fake processes of this playground and remove its folder. Returns how many processes were stopped.
+
+    A process is stopped only if its start time still matches the one in its pid file (the same guard that
+    agents-farm uses before it stops a session), so a reused pid is never touched.
+    """
     p = paths(base)
     killed = 0
     try:
-        pids = json.load(open(p["pids"]))
-    except (OSError, ValueError):
-        pids = []
-    for pid in pids:                    # only the fake processes this script started, and only if they still look like them
-        try:
-            cmd = subprocess.run(["ps", "-o", "command=", "-p", str(pid)], capture_output=True, text=True).stdout  # nosec
-            if "claude-fake" in cmd:
-                os.kill(int(pid), signal.SIGTERM)
-                killed += 1
-        except (OSError, ValueError):
-            pass
-    # fake background sessions that the fake claude started later (they also say "claude-fake")
-    try:
-        sessions = [f for f in os.listdir(p["sessions"]) if f.endswith(".json")]
+        names = [f for f in os.listdir(p["sessions"]) if f.endswith(".json")]
     except OSError:
-        sessions = []
-    for name in sessions:
+        names = []
+    for name in names:                  # the processes made by up(), and the background sessions of the fake claude
         try:
-            pid = int(name[:-5])
-            cmd = subprocess.run(["ps", "-o", "command=", "-p", str(pid)], capture_output=True, text=True).stdout  # nosec
-            if "claude-fake" in cmd:
+            with open(os.path.join(p["sessions"], name)) as fh:
+                data = json.load(fh)
+            pid = int(data["pid"])
+            if data.get("procStart") and lstart(pid) == data["procStart"]:
                 os.kill(pid, signal.SIGTERM)
                 killed += 1
-        except (OSError, ValueError):
-            pass
+        except (OSError, ValueError, KeyError, TypeError):
+            continue
     if os.path.isdir(base) and os.path.exists(p["pids"]):      # only remove a folder that this script made
         shutil.rmtree(base, ignore_errors=True)
     return killed
