@@ -4,6 +4,10 @@ All notable changes are listed here. The format follows [Keep a Changelog](https
 
 ## [Unreleased]
 
+## [0.6.1] - 2026-11-19
+
+The `auto` permission mode, and the new-session dialog remembers your last choices.
+
 ### Added
 - **The `auto` permission mode** in the new-session dialog (`Ctrl+S` cycles `default`, `acceptEdits`, `auto`, `plan`). In `auto` mode Claude's own classifier decides what is safe. Modes that skip permission checks are still never offered.
 - **The dialog remembers the last choices** (model, mode, worktree, open now) between runs, in `~/.agents-farm/state.json` (readable only by you). Values that are not valid any more are ignored, and `new_model` in the config is used until you choose one. The demo keeps its own state, and the tests never touch the real file.
@@ -131,7 +135,8 @@ First release. A terminal dashboard for Claude Code agents.
 - Usage limits are an estimate. Real plan limits (5-hour and weekly) are planned: [#11](https://github.com/mythes/agents-farm/issues/11).
 - There is no PID column, kill, start or resume yet. See the [backlog](docs/backlog.md).
 
-[Unreleased]: https://github.com/mythes/agents-farm/compare/v0.6.0...HEAD
+[Unreleased]: https://github.com/mythes/agents-farm/compare/v0.6.1...HEAD
+[0.6.1]: https://github.com/mythes/agents-farm/compare/v0.6.0...v0.6.1
 [0.6.0]: https://github.com/mythes/agents-farm/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/mythes/agents-farm/compare/v0.4.1...v0.5.0
 [0.4.1]: https://github.com/mythes/agents-farm/compare/v0.4.0...v0.4.1

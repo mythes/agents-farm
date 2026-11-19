@@ -91,7 +91,7 @@ The script does not edit your shell config or `~/.claude/settings.json`. `--unin
 Install without a clone (read the script first: [scripts/install.sh](scripts/install.sh)):
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/mythes/agents-farm/main/scripts/install.sh | bash -s -- --ref v0.6.0
+curl -fsSL https://raw.githubusercontent.com/mythes/agents-farm/main/scripts/install.sh | bash -s -- --ref v0.6.1
 ```
 
 > **Why `af`?** It is short, and at the time of writing it is free in Homebrew, PyPI and Debian. Two old tools use the same name: an npm package (the AppFog CLI) and a Rust crate (an HTTP fetch tool). If you installed one of them, or you have `alias af=…`, the script will notice and keep your command. The short name is only a link made on your machine, so the package itself does not claim `af` for everyone.
