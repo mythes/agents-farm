@@ -4,6 +4,31 @@ All notable changes are listed here. The format follows [Keep a Changelog](https
 
 ## [Unreleased]
 
+### Added
+- Resume a session with `r` (continue it, the same session and history) and fork it with `f` (a new session with the same history, also for one that runs). Both start in the background and open the session like a new one (`claude --bg --resume`, then `claude attach`), so `Ctrl+Z` brings you back. A session that runs in a terminal or in Claude Desktop, or whose state is unknown, is never continued in place (two processes would write to one history): only a fork is possible. A Desktop chat that has ended defaults to a fork. A session already running in the background is opened with `a`. The origin of a session (`cli`, `claude-desktop`) is read from its transcript, so it is known also after the process has ended.
+- **Keys that do not fit explain themselves.** The footer shows a key in grey when it does not fit the selected session (for example `a` on an ended session, or `x` on a subagent). If you press it anyway, a pop-up says why and which keys to use instead, and you can press one of them there.
+- **The help screen (`?`) decodes everything:** the keys in groups, every status symbol, the SRC letters, every column (PID, TIME, CTX, LIMITS) and a few tips. It scrolls with the arrow keys. The text lives in `agents_farm/helptext.py`, and a test makes sure that every status is described.
+- **`f` forks a session** (a new session with the same history; also for one that runs), and `r` now only continues a session that has ended. Fork was a hidden choice inside the `r` dialog before.
+- **SRC column:** a letter for where each session was started (`B` background, `T` terminal, `D` Claude Desktop, `S` SDK), with a star when this agents-farm started it.
+- **Without a background session.** If `claude --bg` is refused for any reason (not trusted, turned off by an administrator, an older Claude Code), a normal session starts in this terminal and agents-farm says why. `Ctrl+Z` there leaves an idle session: it is ended and `r` continues it later, from this or any other agents-farm. A busy session is not ended. New config key `use_background` (`false` always uses plain `claude`).
+- **`agents-farm --demo` runs on a playground:** made-up sessions in every state (waiting, running, stalled, done, error, background, ended, interrupted, a Desktop chat, a subagent, an untrusted folder) with real fake processes and a fake `claude` (`--bg`, `attach`, `stop`, `--resume`, plain), so `n`, `a`, `r`, `f` and `x` really work in the demo. Nothing real is touched, and it cleans up when you quit.
+- **docs/rules.md:** every rule on one page (statuses, which key works on which session, starting, leaving, resume, stop), and the README shows each feature in a short demo (`docs/demo/`, one recording per feature).
+
+### Changed
+- Refresh is now `Ctrl+R` (it was `r`).
+- The footer starts with the keys of the selected session (`n a r f x`), and the labels are shorter, so a narrow terminal still shows them.
+- One word for each thing: a **fork** is a new session with the same history (it was called a copy), and the dialog option is **open now** yes or no (it was called background). A subagent now gets the same explanation for every key: select its parent.
+- The README is organised by feature, and the single demo is replaced by one short demo per feature.
+
+### Removed
+- The `y` key (copy a command). It was mostly useful over SSH; with `r`, `f` and `a` the session can be continued, forked or opened from agents-farm itself.
+
+### Fixed
+- The new session was sometimes not selected after it started: the first snapshot cleared the request even when the session was not in it yet. It now waits up to 15 seconds, and picks the session by its id.
+- A second `Ctrl+Z` (a double press) while the dashboard came back could still stop agents-farm. The signal handlers now stay in place until the dashboard has the terminal back, and queued keys are dropped.
+- A child process that stops again as soon as it is continued (for example agents-farm started with `&`) no longer makes a busy loop: it is ended with a clear message.
+- `r` could continue in place a session whose state was unknown (no process files); it now offers only a fork.
+
 ## [0.5.0] - 2026-11-18
 
 A multi-line first prompt, clearer key hints, and every session started in the background.

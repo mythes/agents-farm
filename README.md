@@ -3,19 +3,53 @@
 A terminal dashboard for your [Claude Code](https://claude.com/claude-code) agents.
 See which agents are working, what they do, how full their context is, and how much of your limits you have used.
 
-![agents-farm demo](docs/demo.gif)
+![agents-farm overview](docs/demo/overview.gif)
 
 > Try it without any real sessions: `af --demo` (see [Install](#install))
 
 ## Features
 
-- **Live agent list.** Every session has a status symbol and a colour. Agents that wait for you (`?`) or have an error (`!`) are always on top. Subagents show under their parent (`└`).
-- **Details you can open.** Context (prompt, files, tokens), Activity (every step with time) and Plan (from TodoWrite or `update_plan`). Press `enter` for a full-screen view.
-- **Limits and context bars.** Usage per model in the current window, with warning colours and a reset timer.
-- **Alerts.** A notification and a bell when an agent starts to wait for you, fails, or a limit goes above 90%.
-- **Process info.** A PID column shows the process of each running session. The details also say if it runs in Claude Desktop or in the CLI.
-- **Fuzzy search.** Type a few letters (`apirf` finds `api-refactor`). You can add filters: `status:waiting`, `model:opus`, `project:api`.
-- **Terminal friendly.** Works on narrow screens, and has a one-line mode for tmux and status lines.
+Each feature has a short demo. The exact rules are on one page: **[docs/rules.md](docs/rules.md)**.
+
+### 1. See every agent
+![overview](docs/demo/overview.gif)
+
+A live list with a status symbol: `?` waits for you, `!` error, `●` running, `⏸` stalled, `✓` done. The **SRC** column says where a session was started: `B` background, `T` terminal, `D` Claude Desktop, `S` SDK (a star, `B*`, means this agents-farm started it). Agents that need you are on top, subagents show under their parent. Open the details (context, activity, plan) with `z`, see usage and reset time per model at the bottom, and get an alert when an agent starts to wait for you. Idle and ended sessions are hidden until `h`.
+
+### 2. Find one fast
+![search](docs/demo/search.gif)
+
+`/` and a few letters: `apir` finds `api-refactor`. Add filters: `status:waiting`, `model:opus`, `project:api`.
+
+### 3. Start a session
+![new session](docs/demo/new-session.gif)
+
+`n` opens a folder browser: type letters to filter folders (fuzzy), `Tab` opens a folder, a preview shows its content and git branch. `Ctrl+A` picks the model, `Ctrl+S` the permission mode, `Ctrl+D` a git worktree. `Ctrl+F` opens a multi-line first prompt, `Ctrl+E` starts.
+
+### 4. Leave a session and come back
+![background](docs/demo/background.gif)
+
+Every session starts in the background, so it keeps running. By default it opens here at once: press **`Ctrl+Z`** to go back to the dashboard (it keeps running), `/exit` ends it. With `Ctrl+B` ("open now: no") it stays closed, and you open it later with `a`.
+
+### 5. Continue or fork
+![resume](docs/demo/resume.gif)
+
+`r` **continues** a session that has ended (the same session and history). `f` **forks** any session: a new session with the same history, and the original is not changed. A session that is still running can only be forked, because two processes must never write to one history. A Claude Desktop chat defaults to a fork.
+
+### 6. Keys that do not fit explain themselves
+![greyed keys](docs/demo/greyed-keys.gif)
+
+The footer shows a key in grey when it does not fit the selected session. Press it anyway and a pop-up says why and which keys to use instead (press one there to do it).
+
+### 7. Help that decodes everything
+![help](docs/demo/help.gif)
+
+`?` explains every key, every status symbol (`?` `!` `●` `◐` `⏸` `✓` `◌`), the SRC letters, and every column (PID, TIME, CTX, LIMITS). The arrow keys scroll it.
+
+### 8. Stop safely
+![stop](docs/demo/stop.gif)
+
+`x` always asks, and **the default answer is No**. A background session is stopped with `claude stop`, any other process with SIGTERM (a second question before SIGKILL). The process is checked again before every signal.
 
 ## Install
 
@@ -70,9 +104,17 @@ After the install, `af` and `agents-farm` are the same command.
 
 ```bash
 agents-farm             # your real sessions from ~/.claude/projects
-agents-farm --demo      # fake data, good for a first look
+agents-farm --demo      # made-up sessions and a fake claude, good for a first look
 agents-farm --since 24  # show sessions from the last 24 hours (default: 12)
 ```
+
+Try every state without any real session:
+
+```bash
+agents-farm --demo      # made-up sessions and a fake claude; nothing real is touched, and it cleans up when you quit
+```
+
+The demo builds a temporary folder with sessions that wait, run, think, stall, finish, fail, run in the background, have ended or were interrupted, a Claude Desktop chat, a subagent, and a folder that is "not trusted". The processes are real (fake) ones, and `n`, `a`, `r`, `f` and `x` really work on them.
 
 One-line status (for tmux or a status line) and JSON (for scripts):
 
@@ -83,69 +125,24 @@ agents-farm status --json
 
 ## Keys
 
+A key that does not fit the selected session is grey in the footer; see [rules, section 2](docs/rules.md#2-what-you-can-do-with-a-session).
+
 | Key | Action |
 |---|---|
+| `n` | New session: folder browser, model, mode, worktree, first prompt |
+| `a` | Open a background session here. **`Ctrl+Z` leaves it and keeps it running** |
+| `r` | Continue a session that has ended (the same session and history) |
+| `f` | Fork a session: a new session with the same history (also for one that runs) |
+| `x` | Stop the session's process. Asks first, and the default answer is No |
+| `p` | Copy the PID |
 | `↑` `↓` / `j` `k` | Move between agents |
 | `enter` / `z` | Zoom: details on the full screen. `esc` goes back |
-| `1` `2` `3` | Open or close Context / Activity / Plan |
-| `e` | Open or close all sections |
-| `/` | Search: a few letters (`apirf` finds `api-refactor`) and filters (`status:waiting`, `model:opus`, `project:api`) |
-| `h` | Show or hide idle sessions (this includes sessions whose process has ended) and finished subagents |
-| `y` | Copy `cd … && claude --resume <id>` (works over SSH too) |
-| `p` | Copy the PID of the agent's process |
-| `a` | Attach to a background session. **`Ctrl+Z` leaves it and keeps it running** (not `/exit`: that ends it) |
-| `x` | Stop the agent's process. It asks first, and the default answer is No |
-| `n` | Start a new `claude` session in this terminal: folder browser, model list, permission mode, worktree |
+| `1` `2` `3` / `e` | Open or close Context / Activity / Plan, or all sections |
+| `/` | Search: letters (fuzzy) and filters (`status:waiting`, `model:opus`, `project:api`) |
+| `h` | Show or hide idle sessions (including ended ones) and finished subagents |
 | `o` | Open the full log in `$PAGER` |
-| `?` | Help |
-| `q` | Quit |
-
-## Starting a new session
-
-Press `n`. The dialog is a small folder browser:
-
-- The path field starts with the folder of the selected agent. The list under it shows the sub-folders of that folder, with `use this folder` and `..` on top. A panel on the right previews the marked folder: its content, the git branch, and how many Claude sessions you had there.
-- Delete back to a `/` and you see the neighbouring folders. Type letters after the last `/` and the list is filtered with fuzzy matching (`apirf` finds `api-refactor`, the matched letters are highlighted).
-- With no `/` in the field (or an empty field) the list shows your recent projects, newest first.
-- `↑` `↓` move in the list while you type. `Tab` (or `→` at the end of the text) opens the marked folder. `Enter` starts `claude` there (on the `..` row, `Enter` goes up instead).
-- `Ctrl+A`, `Ctrl+S` and `Ctrl+D` are next to each other on the left hand, so the dialog can be driven with one hand. `Ctrl+A` picks the model from a short fuzzy list: `default`, the aliases (`fable`, `opus`, `sonnet`, `haiku`: always the latest version), the models found in your sessions, and the names in `models` in the config. A name that is not in the list can be typed and used as it is. `Ctrl+S` changes the permission mode (`default`, `acceptEdits`, `plan`). `Ctrl+D` turns the git worktree (`-w`) on or off. `Ctrl+E` starts the session from anywhere in the dialog (it is the same as `Enter` in the path field, and the only way to start from the prompt editor). The two lines at the bottom list the keys: options and start on the first line, moving around on the second. `Ctrl+F` opens an optional first prompt (it works for normal and background sessions): the editor takes the whole folder area, long lines wrap, `Enter` adds a new line, and `Ctrl+F` again goes back to the folders (the text is kept). The line above the footer shows the current choices, and the next dialog starts with them.
-
-**Every session starts in the background** (`claude --bg`), so it keeps running whatever you do next. What the dialog does after that depends on `Ctrl+B` (background):
-
-- **Off (a normal session, the default).** agents-farm opens the new session right away in this terminal (`claude attach`) and steps aside. Press **`Ctrl+Z`** to come back to the dashboard: the session keeps running. `/exit` ends it. The dashboard selects the new session.
-- **On (background).** The session starts and stays closed, and agents-farm stays on screen. Open it later with `a`.
-- If the folder is not trusted yet, `claude` refuses to start a background session there. A normal session then falls back to a plain `claude` in this terminal, so you can answer the trust question yourself (in that one, leave with `/exit`).
-
-- Modes that skip permission checks are not offered. You can still pass any flag yourself with `claude_args` in the config.
-- `claude` is looked up on `PATH`, then in `~/.local/bin`. Set `claude_bin` in the config to use another program.
-- The list only reads folder names (not recursive, at most 500 per folder, hidden folders only when you type a dot).
-- In `--demo` mode nothing is started.
-
-## Background sessions
-
-> **To leave a background session and keep it running, press `Ctrl+Z`.** You are back in agents-farm and the session works on in the background. Do not type `/exit`: that ends the session.
-
-Claude Code can run a session in the background (`claude --bg`) and let you open it later (`claude attach`). agents-farm uses these official commands:
-
-- Every session started with `n` is a background session. With `Ctrl+B` on in the dialog it is not opened: `af` stays on screen, and the session appears in the list (the details show `background`). You can write a first prompt in the dialog (`Ctrl+F` opens a multi-line editor and brings you back). Without a prompt it starts empty: open it with `a` and type one.
-- Select a background session and press `a`. It opens in this terminal and you can type to it, also while it is working. To come back to agents-farm press **`Ctrl+Z`**: the session keeps running. Do not use `/exit`, that ends it.
-- `x` on a background session runs `claude stop` (the official way). The history is kept.
-- Sessions that were not started in the background (a CLI in another terminal, Claude Desktop) are view-only here, apart from `x`. A background session that you started with `claude --bg` yourself works the same way.
-- A background session in `default` mode stops at its first permission request (`blocked`, shown as `? waiting`). Use `acceptEdits` or `plan`, or attach and answer.
-- Background sessions use your limits while you are not looking.
-- Claude only starts a background session in a folder you already trusted. If it says "Workspace not trusted", run `claude` there once by hand.
-
-## Stopping an agent
-
-Select an agent and press `x`. A dialog shows the name, the PID, and what will happen. Only `y` confirms: `n`, `Esc` and `Enter` all cancel. Then agents-farm sends `SIGTERM` (a normal stop). If the process is still running after 3 seconds, it asks again before it sends `SIGKILL`.
-
-- **Claude Desktop.** Desktop starts a new process for the chat when you send the next message, and the history is kept. If the agent is working (`busy`) or waits for you, the current turn or the question is lost, and the dialog says so in red.
-- **CLI.** The claude session in its terminal ends. The dialog shows the `claude --resume <id>` command to continue it.
-- **Subagents** have no process of their own: select the parent session. Sessions that are not running cannot be stopped.
-
-Before every signal the process is checked again, and the stop is **refused** if the PID now belongs to another program (a reused PID), to another user, or to a process that is not `claude` (for example the Desktop wrapper). It is also refused for agents-farm itself and its parent processes, so it can never close your own terminal. Every attempt, also a refused one, is written to `~/.agents-farm/actions.log` (readable only by you). In `--demo` mode no signal is ever sent.
-
-To turn the key off, set `"allow_kill": false` in the config.
+| `Ctrl+R` | Refresh now |
+| `?` / `q` | Help / quit |
 
 ## Where the data comes from
 
@@ -191,13 +188,14 @@ All keys are optional. The file is `~/.agents-farm/config.json`:
   "claude_bin": "",
   "claude_args": [],
   "claude_env": {},
+  "use_background": true,
   "new_model": "",
   "models": [],
   "context_window": {"default": 200000, "opus-5": 1000000, "sonnet-5": 1000000}
 }
 ```
 
-`claude_args` are extra flags for every new session (a list of strings), `claude_env` are extra environment variables, and `new_model` is the default model in the dialog. `models` adds model names to its list.
+`claude_args` are extra flags for every new session (a list of strings), `claude_env` are extra environment variables, and `new_model` is the default model in the dialog. `models` adds model names to its list. `use_background` (default `true`) starts every session in the background; set it to `false` if your account or Claude Code version does not allow background sessions, and plain `claude` sessions are used instead (see [the rules](docs/rules.md#3-starting-a-session-n)).
 
 `busy_stalled_s` is how long a `busy` agent may print nothing before it is shown as stalled (default 10 minutes).
 
@@ -221,23 +219,26 @@ agents_farm/
   tail.py         reads files in chunks
   registry.py     running processes from ~/.claude/sessions (PID, Desktop or CLI)
   killer.py       safe stop of a process (checks before every signal)
+  runner.py       starts, opens, resumes and stops sessions with Claude Code's own commands
+  capabilities.py what each key can do for the selected session, and why not
+  picker.py       folders and models for the new-session dialog
+  playground.py   the demo: made-up sessions, processes and a fake claude (fake_claude.py)
   search.py       fuzzy search and filters
   events.py       hook handler and reader for events.jsonl
   store.py        builds a Snapshot and works out the statuses
   limits.py       usage per model in the 5-hour window
   render.py       Rich rendering of rows, details, limits (no Textual)
   app.py          Textual UI
-  demo.py         fake data
   config.py       settings from the config file
   cli.py          command line
-docs/             design notes and backlog
+docs/             rules (rules.md), design notes, backlog, and the feature demos (demo/)
 scripts/          checks and demo recording
 .claude/skills/   skills for coding agents that maintain this repo
 ```
 
 ## Roadmap
 
-See [docs/backlog.md](docs/backlog.md) and the [issues](https://github.com/mythes/agents-farm/issues). Done up to v0.4.0: PID column, live status, fuzzy search, stop with `x`, start a new session with `n` (folder browser, models), background sessions (`Ctrl+B`, attach with `a`). Next: resume a session, then real limits and the share of the limits per session.
+See [docs/backlog.md](docs/backlog.md) and the [issues](https://github.com/mythes/agents-farm/issues). Done: PID column, live status, fuzzy search, stop, start a new session (folder browser, models, first prompt), background sessions with `Ctrl+Z`, resume and fork, greyed keys with explanations. Next: real limits and the share of the limits per session.
 
 ## Contributing
 

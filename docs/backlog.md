@@ -185,21 +185,18 @@ Checked on a real machine with Claude Code 2.1.319 / 2.1.325. These facts change
 **Done when:** `n` starts `claude` in the right directory, after `/exit` the TUI is back with a clean screen, a missing directory gives a clear error, and a test checks the argument building (without a real `claude`).
 **Risks:** restoring the terminal state (mouse, alt-screen) on different terminals → S3. The TUI is blocked while the session is open (accepted, because we chose "same terminal").
 
-### T4 · Resume a session · M
+### T4 · Resume a session · M · **done**
 
-**Possible:** ✅ `claude --resume <id>` in the `cwd` of the session. ⚠️ conflict if the process is alive.
+**Possible:** ✅ (checked with real sessions, finding 15).
 
-**Plan**
-- `r` (and `enter` on a not-live session) runs `runner.run_interactive(cwd, ["--resume", session_id])`.
-- **Alive check (T0):**
-  - process dead → resume at once;
-  - process alive (especially Desktop) → dialog (S4: a Desktop chat that is not running is restarted by Desktop on the next message, so a manual resume could race with it and create two writers; prefer the fork): "This session is already running (pid N). Open a **fork** (`--fork-session`, a new history from a copy) / cancel". We do not offer to open the same session twice: both processes would write to one transcript.
-- Subagent transcripts cannot be resumed (the key is off).
-- `c` runs `--continue` for the newest session in the directory.
-- Check that `cwd` exists. If the folder is gone, show an error with the path.
-- Keep `y` (copy the command) to resume in another terminal.
+**What was built**
+- `r` on a session that is not running asks (continue / copy), then runs `claude --bg --resume <id>` (`--fork-session` for a copy) in the session folder and opens it with `claude attach`, exactly like a new session (so `Ctrl+Z` leaves it running). If the folder is not trusted, a plain foreground `claude --resume <id>` runs instead.
+- **Safety:** a session with a live process is never resumed in place. A running terminal or Desktop session can only be copied. A running background session is opened with `a`. A Desktop chat defaults to a copy (Desktop starts it again on the next message, S4). The origin comes from the `entrypoint` field of the transcript, so it is known also when the process has ended.
+- Subagents are not resumable. The session folder must exist. The id is validated. `Ctrl+R` is now refresh.
 
-**Done when:** resume of a dead CLI session works, for a live Desktop session we offer a fork (not a copy), and tests cover the mode choice (without starting `claude`).
+**Not built:** `c` (`--continue` for the newest session of a folder), and `enter` on a session (it still opens the zoom).
+
+**Finding 15 (2026-11-19): `claude --bg --resume` behaves as expected.** For a finished session it wakes it under the same id and says it restored the saved options (`--permission-mode`, `--model`). For a session that already runs in the background, claude itself starts a copy under a new id and says so. `--fork-session` always makes a copy.
 
 ---
 
