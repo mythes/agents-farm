@@ -10,6 +10,7 @@ HOME_DIR = os.path.expanduser(os.environ.get("AGENTS_FARM_HOME", "~/.agents-farm
 CONFIG_PATH = os.path.join(HOME_DIR, "config.json")
 EVENTS_PATH = os.path.join(HOME_DIR, "events.jsonl")
 ACTIONS_LOG = os.path.join(HOME_DIR, "actions.log")
+STATE_PATH = os.path.join(HOME_DIR, "state.json")         # what agents-farm remembers for you (not the config: you edit that)
 CLAUDE_PROJECTS = os.path.expanduser(os.environ.get("CLAUDE_PROJECTS_DIR", "~/.claude/projects"))
 CLAUDE_SESSIONS = os.path.expanduser(os.environ.get("CLAUDE_SESSIONS_DIR", "~/.claude/sessions"))
 
@@ -65,3 +66,29 @@ def load_config() -> dict:
         else:
             cfg[key] = val
     return cfg
+
+
+def load_state(path=None) -> dict:
+    """What agents-farm remembered between runs. A missing or broken file gives {}."""
+    try:
+        with open(path or STATE_PATH, encoding="utf-8") as fh:
+            data = json.load(fh)
+    except (OSError, ValueError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def save_state(update: dict, path=None) -> None:
+    """Merge `update` into the state file (owner only: 0700 folder, 0600 file). It never raises: forgetting is harmless."""
+    path = path or STATE_PATH
+    try:
+        os.makedirs(os.path.dirname(path), mode=0o700, exist_ok=True)
+        data = load_state(path)
+        data.update(update)
+        tmp = f"{path}.tmp{os.getpid()}"
+        fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            json.dump(data, fh)
+        os.replace(tmp, path)
+    except (OSError, ValueError, TypeError):
+        return

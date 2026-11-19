@@ -191,7 +191,7 @@ def make_store(base, notify=True):
     from .config import DEFAULTS
     from .store import Store
     p = paths(base)
-    cfg = dict(DEFAULTS, claude_bin=os.path.join(base, "claude"), notify=notify,
+    cfg = dict(DEFAULTS, claude_bin=os.path.join(base, "claude"), notify=notify, state_path=os.path.join(p["af"], "state.json"),
                claude_env={"CLAUDE_PROJECTS_DIR": p["projects"], "CLAUDE_SESSIONS_DIR": p["sessions"], "HOME": p["home"]})
     store = Store(root=p["projects"], since_hours=12, cfg=cfg, sessions_dir=p["sessions"])
     store.source = "playground"

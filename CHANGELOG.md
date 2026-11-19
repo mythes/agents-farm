@@ -4,6 +4,10 @@ All notable changes are listed here. The format follows [Keep a Changelog](https
 
 ## [Unreleased]
 
+### Added
+- **The `auto` permission mode** in the new-session dialog (`Ctrl+S` cycles `default`, `acceptEdits`, `auto`, `plan`). In `auto` mode Claude's own classifier decides what is safe. Modes that skip permission checks are still never offered.
+- **The dialog remembers the last choices** (model, mode, worktree, open now) between runs, in `~/.agents-farm/state.json` (readable only by you). Values that are not valid any more are ignored, and `new_model` in the config is used until you choose one. The demo keeps its own state, and the tests never touch the real file.
+
 ## [0.6.0] - 2026-11-19
 
 Continue and fork, keys that explain themselves, a SRC column, a demo you can really use, and a help screen that decodes everything.

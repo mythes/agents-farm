@@ -21,8 +21,9 @@ from typing import Callable, Dict, List, Optional
 from .model import sanitize
 from .registry import SESSION_ID_RE
 
-# The dialog offers only these. Modes that skip permission checks are not offered.
-PERMISSION_MODES = ("default", "acceptEdits", "plan")
+# The dialog offers only these. "auto" lets Claude's own classifier decide what is safe (see `claude auto-mode`).
+# Modes that skip permission checks (bypassPermissions, dontAsk) are never offered.
+PERMISSION_MODES = ("default", "acceptEdits", "auto", "plan")
 _MODEL_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:\[\]-]{0,63}$")
 _ENV_NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{0,63}$")
 

@@ -31,6 +31,7 @@ Everything read from transcripts and hook payloads is **untrusted**. It can cont
 - The `x` key sends a signal only to a process that matches its pid file. It cannot protect you from stopping a session whose work you wanted to keep: that is what the confirmation and the red warning are for.
 - The `r` key runs `claude --bg --resume <id>` (and `--fork-session` for `f`) after a confirmation. The id comes from the session file name and is checked (letters, digits, `.`, `_`, `-`, never a leading dash). A session that runs is never resumed in place, so two processes never write to one transcript.
 - The `a`, `x` and `Ctrl+B` keys for background sessions only run `claude attach`, `claude stop` and `claude --bg`, with an id of exactly 8 hex characters (taken from the session id). agents-farm never types into another terminal and sends no signal for these. `claude` may ask for folder trust: agents-farm never answers that for you.
+- `~/.agents-farm/state.json` holds only the last model name, permission mode and two yes/no choices of the new-session dialog (folder `0700`, file `0600`). Every value is checked again when it is read, so an edited file cannot add a flag or a mode that is not offered.
 - The `n` key starts `claude` with arguments you choose, in a folder you choose. `claude_args` and `claude_env` come from your own config file and are passed on as they are. If someone can edit that file, they can already run code as you.
 - `~/.agents-farm/actions.log` only grows and is not rotated.
 - Usage limits are estimates, not data from Anthropic.

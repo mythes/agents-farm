@@ -24,6 +24,7 @@ from textual.widgets import Collapsible, DataTable, Footer, Input, Static, TextA
 from .model import STATUS_ORDER, Agent, Snapshot, Status
 from .registry import load_session_file
 from . import capabilities, helptext, killer, picker, runner
+from . import config as settings
 from . import render as R
 from .search import Query
 
@@ -490,7 +491,7 @@ class NewSession(ModalScreen):
         t.append(" model ", style=OPT_LABEL)
         t.append(o["model"] or "default", style=OPT_ON if o["model"] else OPT_QUIET)
         t.append("   mode ", style=OPT_LABEL)
-        t.append(o["mode"], style={"default": OPT_QUIET, "acceptEdits": "bold " + AMBER, "plan": "bold " + BLUE}.get(o["mode"], "bold"))
+        t.append(o["mode"], style={"default": OPT_QUIET, "acceptEdits": "bold " + AMBER, "auto": "bold #d787d7", "plan": "bold " + BLUE}.get(o["mode"], "bold"))
         t.append("   worktree ", style=OPT_LABEL)
         t.append("on" if o["worktree"] else "off", style="bold " + GREEN if o["worktree"] else OPT_QUIET)
         t.append("   open now ", style=OPT_LABEL)
@@ -514,7 +515,7 @@ class NewSession(ModalScreen):
         self.query_one("#ns-info", Static).update(info)
         warn = ""
         if o["background"] and o["mode"] == "default":
-            warn = "  A session that stays closed in default mode stops at its first permission request. Use ctrl+s for acceptEdits or plan."
+            warn = "  A session that stays closed in default mode stops at its first permission request. Use ctrl+s for acceptEdits, auto or plan."
         self.query_one("#ns-warn", Static).update(Text(warn, style="yellow"))
 
     def action_model(self) -> None:
@@ -1125,7 +1126,7 @@ class FarmApp(App):
         cwd = (a.cwd if a and a.cwd and os.path.isdir(a.cwd) else "") or os.getcwd()
         cfg = getattr(self.store, "cfg", {})
         if self._new_opts is None:
-            self._new_opts = {"model": str(cfg.get("new_model") or ""), "mode": "default", "worktree": False, "background": False}
+            self._new_opts = self._load_new_opts(cfg)
         extra = [m for m in (cfg.get("models") or []) if isinstance(m, str)]
         self.push_screen(NewSession(cwd, list(self.snap.agents) if self.snap else [], self._new_opts, extra), self._start_session)
 
@@ -1133,6 +1134,7 @@ class FarmApp(App):
         if not choice:
             return
         self._new_opts = {k: choice[k] for k in ("model", "mode", "worktree", "background")}      # the next dialog starts with the same choices
+        settings.save_state({"new_session": self._new_opts}, self._state_path())                  # ... also after a restart
         if self.snap and self.snap.source == "demo":
             self.notify("demo mode: no session was started", timeout=4, markup=False)
             return
@@ -1154,6 +1156,22 @@ class FarmApp(App):
     def _is_mine(self, a: Agent) -> bool:
         """True if this agents-farm started or resumed the session (the star in the SRC column). Forgotten at exit."""
         return any(a.id.startswith(m) for m in self._mine)
+
+    def _state_path(self) -> str:
+        return getattr(self.store, "cfg", {}).get("state_path") or settings.STATE_PATH
+
+    def _load_new_opts(self, cfg: dict) -> Dict:
+        """The choices of the last session you started. Only values that are valid now are used; the rest is default.
+        `new_model` in the config is the model until you have chosen one."""
+        saved = settings.load_state(self._state_path()).get("new_session")
+        saved = saved if isinstance(saved, dict) else {}
+        model = saved.get("model") if isinstance(saved.get("model"), str) else str(cfg.get("new_model") or "")
+        try:
+            model = runner.check_model(model)
+        except runner.RunError:
+            model = ""
+        mode = saved.get("mode") if saved.get("mode") in runner.PERMISSION_MODES else "default"
+        return {"model": model, "mode": mode, "worktree": saved.get("worktree") is True, "background": saved.get("background") is True}
 
     def _expect_session(self, before, sid: Optional[str] = None) -> None:
         """Select the new session as soon as it shows up in a snapshot (for up to 15 seconds)."""

@@ -50,7 +50,9 @@ Other keys (`n` new, `/` search, `z` zoom, `e` `h` `o` `?` `q`) work always. `Ct
 - **Open now: yes** (the default): the session is opened here right away. **`Ctrl+Z` leaves it running** and brings you back to the dashboard. `/exit` ends it.
 - **Open now: no** (`Ctrl+B`): the session starts and stays closed. Open it later with `a`.
 - **First prompt** (optional, `Ctrl+F`): a multi-line editor. `Ctrl+E` starts from anywhere in the dialog.
-- The folder must exist. Modes that skip permission checks are never offered. The model name is checked.
+- The folder must exist. The model name is checked.
+- **Permission modes:** `default`, `acceptEdits`, `auto` (Claude's own classifier decides what is safe, see `claude auto-mode`; some plans or organizations do not have it, and then `claude` says so) and `plan`. Modes that skip permission checks (`bypassPermissions`, `dontAsk`) are never offered.
+- **The dialog remembers** the model, mode, worktree and open-now choices of the last session you started, also after a restart (`~/.agents-farm/state.json`, readable only by you; a value that is not valid any more is ignored). The folder and the first prompt are not remembered. `new_model` in the config is the model until you have chosen one.
 - A session in `default` mode that stays closed stops at its first permission request. The dialog warns you: use `acceptEdits` or `plan`, or open it and answer.
 
 **When a background session is not possible** (the folder is not trusted yet, an administrator turned background sessions off, or this Claude Code has no `--bg`):

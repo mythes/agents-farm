@@ -159,8 +159,9 @@ def test_hot_keys_change_the_options_and_the_summary(no_run):
         await pilot.press("ctrl+d")
         text = str(app.screen.query_one("#ns-opts", Static).render())
         assert "mode acceptEdits" in text and "worktree on" in text
-        await pilot.press("ctrl+s", "ctrl+s")
-        assert "mode default" in str(app.screen.query_one("#ns-opts", Static).render())
+        for expected in ("auto", "plan", "default"):                               # the cycle: default, acceptEdits, auto, plan
+            await pilot.press("ctrl+s")
+            assert f"mode {expected}" in str(app.screen.query_one("#ns-opts", Static).render())
         await pilot.press("escape")
 
     run(scenario)
@@ -269,7 +270,7 @@ def test_enter_starts_claude_with_the_choices_and_selects_the_new_session(tmp_pa
         await pilot.pause(0.2)
         await pilot.press("enter")
         await pilot.pause(0.3)
-        await pilot.press("ctrl+s", "ctrl+s", "ctrl+d")                      # plan + worktree
+        await pilot.press("ctrl+s", "ctrl+s", "ctrl+s", "ctrl+d")            # acceptEdits, auto, plan + worktree
         await pilot.press("enter")
         end = time.monotonic() + 8
         while time.monotonic() < end and app.selected_id != new_sid:
