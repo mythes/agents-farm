@@ -4,7 +4,7 @@ Decisions that set the scope (answers to our open questions):
 
 | Question | Decision |
 |---|---|
-| Where to open a new or resumed session | **In the same terminal.** The TUI pauses (`App.suspend()`), `claude` takes the screen, and when it exits you come back to the TUI |
+| Where to open a new, continued or forked session | **In the same terminal, but every session runs in the background** (`claude --bg`). The TUI pauses (`App.suspend()`), `claude attach` takes the screen, and **`Ctrl+Z`** brings you back while the session keeps running (changed in v0.5.0, see T9) |
 | Which sessions we manage | **Both Desktop and CLI.** The behaviour depends on the `entrypoint` field |
 | Source of the limits | **statusLine** (the official `rate_limits` data) |
 | Percent per session | **Both numbers:** how full the context is, and the share of the limits |
@@ -65,10 +65,11 @@ Checked on a real machine with Claude Code 2.1.319 / 2.1.325. These facts change
 
 | M | Content | Tasks | Size |
 |---|---|---|---|
-| **M0** | Spikes: remove 4 unknowns before we build. **Done** | S1–S4 | S |
+| **M0** | Spikes: remove the unknowns before we build. **Done** | S1–S5 | S |
 | **M1** | Session registry, PID, fuzzy search, live status, kill. **Done in v0.2.0** | T0, T1, T5, T8, T2 | M+S+S+S+M |
-| **M2** | Start and resume sessions | T3, T4 | M+M |
+| **M2** | Start, continue and fork sessions. **Done** (T3 v0.2.0, T9 v0.5.0, T4 v0.6.0) | T3, T9, T4 | M+M+M |
 | **M3** | Real limits and percentages | T6, T7 | L+M |
+| **M4** | Hand-off to Claude Desktop, and polish | S6, T10, T11, T12, T13, T14 | S+M+S+M+S+S |
 
 ---
 
@@ -81,6 +82,7 @@ Checked on a real machine with Claude Code 2.1.319 / 2.1.325. These facts change
 | **S3** | Does `App.suspend()` + `claude` return the terminal to the TUI in a clean state on macOS (iTerm2, Terminal.app)? | Run `claude` by hand, exit, and check the cursor, mouse mode and colours. The `o` key (pager) is also not tested by hand yet | T3, T4 **Result: works in the Claude app terminal (finding 12). iTerm2 and Terminal.app not tested.** |
 | **S4** | What happens in Desktop when we kill its `claude` process? | Kill a **throwaway** Desktop session (never a working one) | The warning text in T2 **Result: done. Safe when idle, Desktop restarts the process on the next message (finding 13).** |
 | **S5** | Can `af` use Claude Code's own background sessions (`--bg`, `attach`) to leave a session without `/exit` and to type a prompt while it works? | Start one cheap read-only `--bg` session, attach through a pty, try Ctrl+Z and the left arrow, type a second prompt while it is busy, then stop it | T9, T4 **Result: yes (finding 14).** |
+| **S6** | Can a session be continued in Claude Desktop (or the phone) without opening it in the terminal? (`claude remote-control`, a URL scheme, the Desktop bridge) | See M4. One throwaway session, no clicking through real chats | T10 **Open** |
 
 ---
 
@@ -171,7 +173,7 @@ Checked on a real machine with Claude Code 2.1.319 / 2.1.325. These facts change
 
 ### T3 · New session hotkey (CLI claude) · M
 
-**Done in v0.2.0.** Still to check by hand: iTerm2 and Terminal.app.
+**Done in v0.2.0, and redesigned twice.** In v0.5.0 it became `claude --bg` plus `claude attach` (see T9), with a multi-line first prompt (`Ctrl+F`), a model list (`Ctrl+A`) and two-level key hints. Still to check by hand: iTerm2 and Terminal.app (T14).
 
 **Possible:** ✅ the same way as `o` (pager): `App.suspend()` + `subprocess`. S3 passed in the Claude app terminal; check iTerm2 and Terminal.app by hand.
 
@@ -185,16 +187,17 @@ Checked on a real machine with Claude Code 2.1.319 / 2.1.325. These facts change
 **Done when:** `n` starts `claude` in the right directory, after `/exit` the TUI is back with a clean screen, a missing directory gives a clear error, and a test checks the argument building (without a real `claude`).
 **Risks:** restoring the terminal state (mouse, alt-screen) on different terminals → S3. The TUI is blocked while the session is open (accepted, because we chose "same terminal").
 
-### T4 · Resume a session · M · **done**
+### T4 · Continue and fork a session · M · **done (v0.6.0)**
 
 **Possible:** ✅ (checked with real sessions, finding 15).
 
 **What was built**
-- `r` on a session that is not running asks (continue / copy), then runs `claude --bg --resume <id>` (`--fork-session` for a copy) in the session folder and opens it with `claude attach`, exactly like a new session (so `Ctrl+Z` leaves it running). If the folder is not trusted, a plain foreground `claude --resume <id>` runs instead.
-- **Safety:** a session with a live process is never resumed in place. A running terminal or Desktop session can only be copied. A running background session is opened with `a`. A Desktop chat defaults to a copy (Desktop starts it again on the next message, S4). The origin comes from the `entrypoint` field of the transcript, so it is known also when the process has ended.
-- Subagents are not resumable. The session folder must exist. The id is validated. `Ctrl+R` is now refresh.
+- **`r` continues** a session that has ended (the same session id, history, model and mode). **`f` forks** any session: a new session (new id) with the same history, the original is not changed. Both run `claude --bg --resume <id>` (`--fork-session` for a fork) in the session folder and open the result with `claude attach`, like a new session (so `Ctrl+Z` leaves it running). If `claude --bg` is refused, a plain `claude --resume` runs instead (see T9).
+- **Safety:** two processes never write to one history. A session that runs (terminal, Desktop, background) is never continued, only forked (a running background session is opened with `a`). When we cannot tell (no process files), only a fork. A Desktop chat that has ended defaults to a fork (Desktop starts it again on the next message, S4). The origin comes from the `entrypoint` field of the transcript, so it is known also when the process has ended.
+- Subagents can be neither continued nor forked. The session folder must exist. The id is validated. A key that does not fit is grey, and says why (see "Done after the plan").
+- The `y` key (copy a command) was removed in v0.6.0: `r`, `f` and `a` do it from agents-farm itself. `Ctrl+R` is refresh.
 
-**Not built:** `c` (`--continue` for the newest session of a folder), and `enter` on a session (it still opens the zoom).
+**Not built:** `c` (continue the newest session of a folder, T13), and `enter` on a session (it still opens the zoom).
 
 **Finding 15 (2026-11-19): `claude --bg --resume` behaves as expected.** For a finished session it wakes it under the same id and says it restored the saved options (`--permission-mode`, `--model`). For a session that already runs in the background, claude itself starts a copy under a new id and says so. `--fork-session` always makes a copy.
 
@@ -215,6 +218,25 @@ Checked on a real machine with Claude Code 2.1.319 / 2.1.325. These facts change
 
 **Not done / ideas:** a clean "terminal output" block in zoom from `claude logs <id>` (it prints raw escape codes), and a sign for background sessions in the list (the details say `background`).
 **Risks:** `Ctrl+Z` in iTerm2 and Terminal.app (S3 list); `claude` command names can change between versions (check `claude --help` and fail softly).
+
+### Done after the plan (v0.4 to v0.6)
+
+Things we built because testing showed they were needed. The exact rules are in [rules.md](rules.md).
+
+| What | Version |
+|---|---|
+| Sessions with no process and a quiet transcript are `idle` (ended), never `stalled` or `running` | 0.5.0 |
+| A running session with no transcript yet (a new background session) is listed from its pid file | 0.5.0 |
+| `Ctrl+Z` never stops agents-farm (signal handlers kept until the terminal is back, queued keys dropped, a child that keeps stopping is ended) | 0.5.0, 0.6.0 |
+| Without a background session (`--bg` refused, or `use_background: false`): a plain `claude`, and `Ctrl+Z` leaves an idle one (`r` continues it later) | 0.6.0 |
+| Keys that do not fit the selected session are grey, with a pop-up that says why and what to do instead (`capabilities.py`) | 0.6.0 |
+| `f` fork as its own key, `r` only continues | 0.6.0 |
+| SRC column: where a session was started (`B` background, `T` terminal, `D` Desktop, `S` SDK), a star for the ones this agents-farm started | 0.6.0 |
+| Help (`?`) decodes the keys, symbols, SRC letters and columns | 0.6.0 |
+| `agents-farm --demo` runs on a playground (made-up sessions, real fake processes, a fake `claude`), and the README shows each feature in its own short demo | 0.6.0 |
+| Install with Homebrew (`brew install mythes/tap/agents-farm`) | 0.4.1 |
+
+---
 
 ## M3
 
@@ -258,15 +280,61 @@ Checked on a real machine with Claude Code 2.1.319 / 2.1.325. These facts change
 
 ---
 
+## M4: Hand-off to Claude Desktop, and polish
+
+### S6 · Continue a session in Claude Desktop without opening it in the terminal (spike)
+
+**The question.** You are in agents-farm and you want to continue a session on the Desktop app (or the phone), **without attaching to it in this terminal**. Is there an official way?
+
+**What we already know**
+- `claude remote-control` is documented in `claude --help`: "Control local sessions from claude.ai/code or the Claude mobile app". It has `--session-id <id>` (reattach to a specific session) and `--continue` (the session last recorded for this folder, within about 4 hours), and `claude --remote-control [name]` starts an interactive session with it enabled.
+- The pid files of Desktop sessions have `hostSessionId`, `bridgeSessionId`, `asksForConvertedSkills`, `messagingSocketPath` and `peerProtocol`. They look like a bridge between Desktop and the CLI. They are **not documented**, so we only read them, and we never write to them.
+
+**How to check (one throwaway session, nothing on a real chat)**
+1. Start a throwaway background session. Run `claude remote-control --session-id <its id>`. Does the session show up in the Claude Desktop app (the Code tab) and in claude.ai/code? Can you send a prompt there? Does the answer appear in the transcript and in agents-farm?
+2. Does it work for a session that has ended (resume, then remote control), for a background session, and for a session that runs in a terminal (is it the same process, so there are no two writers)?
+3. Does Claude.app have a URL scheme (`CFBundleURLTypes` in its `Info.plist`) that opens a session by id? (Read the file only.)
+4. What does it send to Anthropic's servers, and which accounts or organizations may use it? (The administrator who turned background sessions off may also have turned this off.)
+
+**What it decides:** T10. If there is nothing official, T10 is dropped and the answer goes into "What the research showed".
+
+### T10 · Continue in Claude Desktop without entering the session · M (after S6)
+
+**Idea.** A key (for example `d`, "hand over") for the selected session: make it available in Claude Desktop (or on the phone), and say where to find it. No terminal attach.
+
+**Plan (to confirm by S6)**
+- Use the official Remote Control (`claude remote-control --session-id <id>`), never keystrokes or the undocumented socket.
+- A confirmation first, in plain words: the session becomes reachable through Anthropic's servers (`claude.ai/code`, the apps). The default answer is No.
+- The key follows the greyed-key rules: it says why when it does not fit (a subagent, an account where it is off, no network), and offers the options. Add it to `capabilities.py`, `docs/rules.md` and the help.
+- Show in the list that a session is reachable from Desktop (a mark, or a letter in SRC).
+- Tests with a fake `claude` (the playground gets a `remote-control` command).
+
+**Done when:** the key works for the cases that S6 proved, the rules page says exactly when, and the demo shows it.
+**Risks:** it needs the network and an account that allows it. It must not create a second writer to one history. The official command may change.
+
+### T11 · A clean terminal-output block in the zoom · S
+`claude logs <id>` prints the raw terminal stream with escape codes. Clean it (or render the last screen) and show it in the zoom for background sessions. It was left over from T9.
+
+### T12 · Optional tmux backend · M (only if people ask)
+For accounts where background sessions are not possible: run `claude` in a private tmux server, `a` attaches, and a key of our own leaves. It would also give a way to send a prompt without attaching. A new dependency, so only on demand. We rejected building our own session host (too much to maintain).
+
+### T13 · `c`: continue the newest session of a folder · S
+Left over from T4: `claude --continue` through `--bg`. It is a shortcut for `r` on the newest session, so only if people miss it.
+
+### T14 · Manual checks in other terminals · S
+S3 and T9 were checked in the Claude app terminal and with a pseudo-terminal under bash. Still to check by hand: iTerm2 and Terminal.app on macOS, and a Linux terminal: `Ctrl+Z`, the hand-over of the terminal (mouse, colours, cursor), and the fallback to a plain `claude`.
+
+---
+
 ## Cross-cutting
 
 - **Tests:** the variables `CLAUDE_SESSIONS_DIR`, `CLAUDE_PROJECTS_DIR` and `AGENTS_FARM_HOME` replace the real folders. Textual `run_test` covers the UI. Fake processes cover kill. Nothing may start a real `claude` or touch real sessions.
 - **Security:** every new action (kill, start, resume, editing `settings.json`) needs an explicit confirmation. All strings from transcripts and pid files go through `sanitize()`. Process arguments never use a shell. Actions go to `actions.log`. Update `SECURITY.md`.
 - **Performance:** UI updates must not block on reads (they run in a thread). The PID and limit columns must add less than 50 ms per refresh for 200 sessions.
-- **Docs:** update the key table in the README and in `?`, and add the statusLine install guide.
+- **Docs:** every user-visible rule is written once, in [rules.md](rules.md). A new key needs a line in the key table of the README and in the help (`?`), a rule in `capabilities.py` (when it is grey, and why), a section in `rules.md`, and a demo scenario. A new status needs a decoding in `helptext.py` (a test checks it). Add the statusLine install guide with T6.
 
 ## Order of work
 
-`S1–S4` → `T0` → `T1` + `T5` → `T8` → `T2` → `T3` → `T9` → `T4` → `T6` → `T7a` → `T7b`
+`S1–S5` → `T0` → `T1` + `T5` → `T8` → `T2` → `T3` → `T9` → `T4` (all done) → next: **`S6` → `T10`** (hand-off to Desktop), `T14` (other terminals) → `T6` → `T7a` → `T7b` → `T11`, `T13`, `T12` when asked
 
-The biggest unknown is **S1** (does statusLine run in Desktop sessions?). It decides how exact the limits will be for the main use case. So check it before T6, and best of all first.
+The biggest unknown for the limits is **S1** (does statusLine run in Desktop sessions?): done, the answer is no, so T6 only has fresh numbers while a CLI session runs. The biggest unknown now is **S6** (is there an official way to continue on Desktop without the terminal?): it decides T10.
