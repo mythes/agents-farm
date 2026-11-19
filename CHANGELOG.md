@@ -4,6 +4,10 @@ All notable changes are listed here. The format follows [Keep a Changelog](https
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-11-19
+
+Continue and fork, keys that explain themselves, a SRC column, a demo you can really use, and a help screen that decodes everything.
+
 ### Added
 - Resume a session with `r` (continue it, the same session and history) and fork it with `f` (a new session with the same history, also for one that runs). Both start in the background and open the session like a new one (`claude --bg --resume`, then `claude attach`), so `Ctrl+Z` brings you back. A session that runs in a terminal or in Claude Desktop, or whose state is unknown, is never continued in place (two processes would write to one history): only a fork is possible. A Desktop chat that has ended defaults to a fork. A session already running in the background is opened with `a`. The origin of a session (`cli`, `claude-desktop`) is read from its transcript, so it is known also after the process has ended.
 - **Keys that do not fit explain themselves.** The footer shows a key in grey when it does not fit the selected session (for example `a` on an ended session, or `x` on a subagent). If you press it anyway, a pop-up says why and which keys to use instead, and you can press one of them there.
@@ -123,7 +127,8 @@ First release. A terminal dashboard for Claude Code agents.
 - Usage limits are an estimate. Real plan limits (5-hour and weekly) are planned: [#11](https://github.com/mythes/agents-farm/issues/11).
 - There is no PID column, kill, start or resume yet. See the [backlog](docs/backlog.md).
 
-[Unreleased]: https://github.com/mythes/agents-farm/compare/v0.5.0...HEAD
+[Unreleased]: https://github.com/mythes/agents-farm/compare/v0.6.0...HEAD
+[0.6.0]: https://github.com/mythes/agents-farm/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/mythes/agents-farm/compare/v0.4.1...v0.5.0
 [0.4.1]: https://github.com/mythes/agents-farm/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/mythes/agents-farm/compare/v0.3.0...v0.4.0
