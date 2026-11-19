@@ -14,7 +14,7 @@ from textual.widgets import DataTable, Input, Static, TextArea
 
 from agents_farm import killer, runner
 from agents_farm.app import AttachHint, ConfirmKill, FarmApp, NewSession
-from agents_farm.demo import DemoStore
+from demo_store import DemoStore
 from agents_farm.model import utcnow
 from agents_farm.render import detail_header
 from agents_farm.runner import RunError
@@ -181,7 +181,9 @@ def run(scenario, store, size=(130, 40)):
 
 @pytest.fixture
 def calls(monkeypatch):
-    seen = {"interactive": [], "start": [], "stop": [], "kill": [], "leave": []}
+    seen = {"interactive": [], "start": [], "stop": [], "kill": [], "leave": [], "job": []}
+    monkeypatch.setattr(runner, "run_job", lambda cwd, args, claude, env=None, on_stop="resume", is_busy=None:
+                        seen["job"].append((cwd, args, on_stop)) or runner.RunResult(0))
     monkeypatch.setattr(runner, "run_interactive",
                         lambda cwd, args, claude, env=None, leave_on_stop=False: seen["interactive"].append((cwd, args)) or seen["leave"].append(leave_on_stop) or 0)
     monkeypatch.setattr(runner, "start_background", lambda cwd, args, claude, env=None: seen["start"].append((cwd, args)) or "cccccccc")
@@ -254,9 +256,9 @@ def test_n_with_ctrl_b_starts_in_the_background_and_warns_about_default_mode(tmp
         await pilot.pause(0.2)
         await pilot.press("ctrl+b")
         text = str(app.screen.query_one("#ns-opts", Static).render())
-        assert "background on" in text
+        assert "open now no" in text
         info = str(app.screen.query_one("#ns-info", Static).render())
-        assert "Ctrl+Z" in info and "stays closed" in info                   # the way back is shown
+        assert "Ctrl+Z" in info and "stays closed" in info                   # the way back is shown, for both choices
         assert "stops at its first permission request" in str(app.screen.query_one("#ns-warn", Static).render())
         await pilot.press("ctrl+s")                                         # acceptEdits: no warning any more
         assert str(app.screen.query_one("#ns-warn", Static).render()).strip() == ""
@@ -281,7 +283,7 @@ def test_demo_mode_starts_attaches_and_stops_nothing(tmp_path, calls):
         await pilot.press("escape")
 
     run(scenario, DemoStore())
-    assert calls == {"interactive": [], "start": [], "stop": [], "kill": [], "leave": []}
+    assert calls == {"interactive": [], "start": [], "stop": [], "kill": [], "leave": [], "job": []}
 
 
 @needs_ps
@@ -348,8 +350,8 @@ def test_the_dialog_always_says_how_to_leave_both_kinds_of_session(calls):
         await pilot.press("n")
         for _ in range(2):
             info = str(app.screen.query_one("#ns-info", Static).render())
-            assert "Ctrl+Z" in info and "stays closed" in info and "Ctrl+B" in info    # background: started and left closed
-            assert "Normal session" in info and "/exit" in info and "keeps running" in info   # normal: opened, leave with Ctrl+Z
+            assert "Stay here" in info and "stays closed" in info and "Ctrl+B" in info        # started and left closed
+            assert "Open now" in info and "/exit" in info and "leaves it running" in info and "Ctrl+Z" in info
             await pilot.press("ctrl+b")
         await pilot.press("escape")
 
@@ -406,7 +408,7 @@ def test_the_hints_have_two_levels_and_start_is_always_on_the_list(calls):
         await pilot.press("n")
         lines = levels(app)
         assert len(lines) == 2
-        assert lines[0].startswith("options") and all(k in lines[0] for k in ("^a Model", "^s Mode", "^d Worktree", "^b Background", "^e Start"))
+        assert lines[0].startswith("options") and all(k in lines[0] for k in ("^a Model", "^s Mode", "^d Worktree", "^b Open now", "^e Start"))
         assert lines[1].startswith("navigate") and all(k in lines[1] for k in ("tab Open folder", "^f Prompt", "esc Cancel"))
         await pilot.press("ctrl+f")                                          # in the prompt editor the options line stays the same
         lines = levels(app)
@@ -440,7 +442,7 @@ def test_a_folder_that_is_not_trusted_falls_back_to_a_normal_session(tmp_path, c
     work.mkdir()
 
     def refuse(cwd, args, claude, env=None):
-        raise RunError("Workspace not trusted. Run `claude` in /x once and accept the trust prompt, then retry.")
+        raise runner.BackgroundRefused("Workspace not trusted. Run `claude` in /x once and accept the trust prompt, then retry.")
 
     monkeypatch.setattr(runner, "start_background", refuse)
 
@@ -452,7 +454,132 @@ def test_a_folder_that_is_not_trusted_falls_back_to_a_normal_session(tmp_path, c
         await pilot.pause(1.0)
 
     run(scenario, _store(tmp_path))
-    assert calls["interactive"] == [(str(work), [])] and calls["leave"] == [False]       # a plain claude, not an attach
+    assert calls["job"] == [(str(work), [], "end")] and calls["interactive"] == []       # a plain claude: Ctrl+Z leaves an idle session
+
+
+@pytest.mark.parametrize("message", ["error: unknown option '--bg'", "Background sessions are disabled by your organization.", "claude --bg failed (exit 1)"])
+def test_any_refusal_of_a_background_session_falls_back_not_only_the_trust_one(tmp_path, calls, monkeypatch, message):
+    """An old version, or an account where an administrator turned background sessions off, must still be able to start."""
+    work = tmp_path / "work"
+    work.mkdir()
+    monkeypatch.setattr(runner, "start_background", lambda *a, **k: (_ for _ in ()).throw(runner.BackgroundRefused(message)))
+
+    async def scenario(app, pilot):
+        await pilot.press("n")
+        app.screen.query_one("#ns-dir", Input).value = str(work) + "/"
+        await pilot.pause(0.2)
+        await pilot.press("enter")
+        await pilot.pause(1.0)
+
+    run(scenario, _store(tmp_path))
+    assert calls["job"] == [(str(work), [], "end")]
+
+
+@needs_ps
+def test_a_slow_or_missing_claude_does_not_start_a_second_one(tmp_path, calls, monkeypatch):
+    """A timeout may mean the background session started late: never start another one in the foreground."""
+    work = tmp_path / "work"
+    work.mkdir()
+    monkeypatch.setattr(runner, "start_background", lambda *a, **k: (_ for _ in ()).throw(RunError("claude did not answer within 60 seconds")))
+
+    async def scenario(app, pilot):
+        await pilot.press("n")
+        app.screen.query_one("#ns-dir", Input).value = str(work) + "/"
+        await pilot.pause(0.2)
+        await pilot.press("enter")
+        await pilot.pause(1.0)
+
+    run(scenario, _store(tmp_path))
+    assert calls["job"] == [] and calls["interactive"] == []
+
+
+@needs_ps
+def test_use_background_false_starts_in_the_foreground_and_never_calls_claude_bg(tmp_path, calls):
+    work = tmp_path / "work"
+    work.mkdir()
+    store = _store(tmp_path)
+    store.cfg = dict(store.cfg, use_background=False)
+
+    async def scenario(app, pilot):
+        await pilot.press("n")
+        app.screen.query_one("#ns-dir", Input).value = str(work) + "/"
+        await pilot.pause(0.2)
+        await pilot.press("enter")
+        await pilot.pause(1.0)
+
+    run(scenario, store)
+    assert calls["start"] == [] and calls["job"] == [(str(work), [], "end")]
+
+
+@needs_ps
+def test_use_background_false_refuses_an_explicit_background_start(tmp_path, calls):
+    work = tmp_path / "work"
+    work.mkdir()
+    store = _store(tmp_path)
+    store.cfg = dict(store.cfg, use_background=False)
+
+    async def scenario(app, pilot):
+        await pilot.press("n")
+        app.screen.query_one("#ns-dir", Input).value = str(work) + "/"
+        await pilot.pause(0.2)
+        await pilot.press("ctrl+b", "enter")
+        await pilot.pause(1.0)
+
+    run(scenario, store)
+    assert calls["start"] == [] and calls["job"] == [] and calls["interactive"] == []
+
+
+def test_the_busy_check_reads_the_pid_file_and_says_unknown_when_it_cannot(tmp_path):
+    sessions = tmp_path / "sessions"
+    sessions.mkdir()
+    store = Store(root=str(tmp_path / "projects"), since_hours=24, sessions_dir=str(sessions))
+    app = FarmApp(store, notify_enabled=False)
+    for status, expected in (("idle", False), ("busy", True), ("waiting", True), ("starting", None)):
+        write(sessions, MY_PID, sessionId=BG_SID, status=status)
+        assert app._session_busy(MY_PID) is expected, status
+    assert app._session_busy(999999) is False                                     # no file yet: a fresh plain session, nothing to lose
+    (sessions / "424242.json").write_text("not json")
+    assert app._session_busy(424242) is None                                      # unreadable: we cannot tell, so never ended
+    assert FarmApp(DemoStore(), notify_enabled=False)._session_busy(MY_PID) is None
+    old = FarmApp(Store(root=str(tmp_path / "projects"), since_hours=24, sessions_dir=str(tmp_path / "no-such-folder")), notify_enabled=False)
+    assert old._session_busy(MY_PID) is None                                      # no folder of process files: an older Claude Code
+
+
+def test_a_new_session_that_is_not_in_the_first_snapshot_is_still_selected(calls):
+    """A refresh that began before the launch delivers a snapshot without the new session: keep waiting."""
+    import dataclasses
+
+    async def scenario(app, pilot):
+        old = app.snap
+        before = {a.id for a in old.agents}
+        app._pick_new, app._pick_sid, app._pick_until = before, None, time.monotonic() + 15
+        app._apply_snapshot(old)                                                   # the new session is not there yet
+        assert app._pick_new is not None
+        template = old.agents[0]
+        new = dataclasses.replace(template, id="newnewnew-0000-0000-0000-000000000001", title="brand new")
+        app._apply_snapshot(dataclasses.replace(old, agents=list(old.agents) + [new]))
+        assert app.selected_id == new.id and app._pick_new is None
+
+    run(scenario, DemoStore())
+
+
+def test_the_wait_for_a_new_session_ends_after_a_while_and_selects_by_id_when_it_knows_it(calls):
+    import dataclasses
+
+    async def scenario(app, pilot):
+        old = app.snap
+        app._pick_new, app._pick_sid, app._pick_until = {a.id for a in old.agents}, None, 0.0   # the time is up
+        app._apply_snapshot(old)
+        assert app._pick_new is None                                               # never waits for ever
+
+        template = old.agents[0]
+        wanted = dataclasses.replace(template, id="abcdef12-0000-0000-0000-000000000009", title="by id")
+        other = dataclasses.replace(template, id="99999999-0000-0000-0000-000000000009", title="other")
+        app._pick_new, app._pick_sid, app._pick_until = {a.id for a in old.agents}, "abcdef12", time.monotonic() + 15
+        app._apply_snapshot(dataclasses.replace(old, agents=list(old.agents) + [other, wanted]))
+        assert app.selected_id == wanted.id
+
+    run(scenario, DemoStore())
 
 
 @needs_ps

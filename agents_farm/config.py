@@ -44,6 +44,9 @@ DEFAULTS = {
     "claude_bin": "",
     "claude_args": [],       # extra flags for every new session, for example ["--verbose"]
     "claude_env": {},        # extra environment variables for `claude`
+    # Claude Code's background sessions (`claude --bg`) keep a session running when you press Ctrl+Z. Set to false if
+    # your account or version does not allow them: sessions then run in the foreground of this terminal.
+    "use_background": True,
     "new_model": "",         # default model in the new-session dialog ("" = Claude's default)
     "models": [],            # extra model names to offer in the dialog (ctrl+a)
 }

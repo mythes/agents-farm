@@ -86,7 +86,7 @@ def test_hook_cannot_point_reader_outside_projects_dir():
 
 def test_notify_and_titles_do_not_interpret_markup():
     from agents_farm.app import FarmApp
-    from agents_farm.demo import DemoStore
+    from demo_store import DemoStore
 
     async def run():
         store = DemoStore()

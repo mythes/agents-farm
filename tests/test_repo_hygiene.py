@@ -1,14 +1,16 @@
 """Repository hygiene: keep the repo small, English-only and free of personal data."""
 
 import os
+import sys
 import re
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SKIP_DIRS = {".git", ".venv", "__pycache__", ".pytest_cache", "agents_farm.egg-info", "node_modules"}
 TEXT_EXT = {".py", ".md", ".toml", ".yml", ".yaml", ".sh", ".txt", ".json", ".cast", ""}
 
-GIF_BUDGET = 1 * 1024 * 1024      # the README demo
-CAST_BUDGET = 2 * 1024 * 1024     # raw text; git stores it compressed
+GIF_BUDGET = 350 * 1024           # one feature demo (the repo keeps every version of it forever)
+GIF_TOTAL_BUDGET = 1536 * 1024    # all feature demos together
+CAST_BUDGET = 1900 * 1024         # raw text of one cast; git stores it compressed
 FILE_BUDGET = 2 * 1024 * 1024     # no other file may be bigger than this
 
 
@@ -30,11 +32,39 @@ def _read(path):
         return fh.read()
 
 
+def _scenarios():
+    sys.path.insert(0, os.path.join(ROOT, "scripts"))
+    try:
+        import record_demo
+        return list(record_demo.SCENARIOS)
+    finally:
+        sys.path.pop(0)
+
+
 def test_demo_assets_stay_small():
-    for name, budget in (("demo.gif", GIF_BUDGET), ("demo.cast", CAST_BUDGET)):
-        path = os.path.join(ROOT, "docs", name)
-        assert os.path.exists(path), f"docs/{name} is missing: run scripts/make_demo.sh"
-        assert os.path.getsize(path) <= budget, f"docs/{name} is over its size budget"
+    """One cast and one GIF per feature scenario, each small, and small together."""
+    total = 0
+    for name in _scenarios():
+        for ext, budget in ((".gif", GIF_BUDGET), (".cast", CAST_BUDGET)):
+            path = os.path.join(ROOT, "docs", "demo", name + ext)
+            assert os.path.exists(path), f"docs/demo/{name}{ext} is missing: run scripts/make_demo.sh {name}"
+            size = os.path.getsize(path)
+            assert size <= budget, f"docs/demo/{name}{ext} is over its size budget ({size // 1024} KB)"
+            total += size if ext == ".gif" else 0
+    assert total <= GIF_TOTAL_BUDGET, f"the feature GIFs together are {total // 1024} KB: too big"
+
+
+def test_every_feature_demo_is_shown_in_the_readme_and_every_link_works():
+    readme = _read(os.path.join(ROOT, "README.md"))
+    linked = set(re.findall(r"docs/demo/([a-z-]+)\.gif", readme))
+    assert linked == set(_scenarios()), "the README must show each demo scenario once"
+    for name in linked:
+        assert os.path.exists(os.path.join(ROOT, "docs", "demo", name + ".gif"))
+
+
+def test_the_rules_page_exists_and_the_readme_links_it():
+    assert os.path.exists(os.path.join(ROOT, "docs", "rules.md"))
+    assert "docs/rules.md" in _read(os.path.join(ROOT, "README.md"))
 
 
 def test_no_large_files():

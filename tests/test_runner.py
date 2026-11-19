@@ -114,12 +114,38 @@ def test_a_program_that_cannot_start_is_an_error_not_a_crash(tmp_path):
         runner.run_interactive(str(tmp_path), [], str(bad))
 
 
+def _in_subprocess(code: str, timeout=30):
+    """Run a snippet in its own process: a stopped or killed test process must never be pytest itself."""
+    import subprocess
+    return subprocess.run([sys.executable, "-I", "-c", "import sys; sys.path.insert(0, %r)\n" % os.path.dirname(os.path.dirname(os.path.abspath(__file__))) + code],
+                          capture_output=True, text=True, timeout=timeout)
+
+
 def test_ctrl_z_during_the_run_does_not_stop_us(tmp_path):
     """The terminal sends Ctrl-Z to the whole foreground group, so also to us. We must go on."""
-    claude = fake_claude(tmp_path, "import time\ntime.sleep(0.6)")
-    import threading
-    threading.Timer(0.3, lambda: os.kill(os.getpid(), signal.SIGTSTP)).start()
-    assert runner.run_interactive(str(tmp_path), [], claude) == 0           # a stopped test process would never get here
+    claude = fake_claude(tmp_path, "import time\ntime.sleep(0.8)")
+    done = _in_subprocess(f"""
+import os, signal, threading
+from agents_farm import runner
+threading.Timer(0.3, lambda: os.kill(os.getpid(), signal.SIGTSTP)).start()
+print("code", runner.run_interactive({str(tmp_path)!r}, [], {claude!r}))
+""")
+    assert done.returncode == 0 and "code 0" in done.stdout, done.stderr             # a stopped process would hit the timeout instead
+
+
+def test_a_second_ctrl_z_after_the_child_has_gone_is_still_shielded(tmp_path):
+    """While the dashboard takes the terminal back, a queued Ctrl-Z must not stop agents-farm either."""
+    claude = fake_claude(tmp_path, "pass")
+    done = _in_subprocess(f"""
+import os, signal
+from agents_farm import runner
+with runner.shielded_signals():
+    runner.run_interactive({str(tmp_path)!r}, [], {claude!r})
+    os.kill(os.getpid(), signal.SIGTSTP)                    # the child is gone, the dashboard is not back yet
+    print("alive")
+print("restored", signal.getsignal(signal.SIGTSTP) == signal.SIG_DFL)
+""")
+    assert done.returncode == 0 and "alive" in done.stdout and "restored True" in done.stdout, done.stderr
 
 
 def test_a_child_that_stops_is_resumed_so_ctrl_z_does_nothing_in_a_normal_session(tmp_path):
@@ -147,3 +173,56 @@ def test_exit_codes_and_signals_are_reported(tmp_path):
 def test_a_trust_refusal_is_recognised():
     assert runner.is_trust_error("Workspace not trusted. Run `claude` in /x once and accept the trust prompt, then retry.")
     assert not runner.is_trust_error("cannot start claude: boom") and not runner.is_trust_error("")
+
+
+# ------------------------------------------------------- run_job: Ctrl-Z in a normal session ("end")
+
+STOP_THEN_SLEEP = "import signal, time\nos.kill(os.getpid(), signal.SIGSTOP)\ntime.sleep(60)"
+
+
+def test_end_on_stop_ends_an_idle_session_and_says_so(tmp_path):
+    pidfile = tmp_path / "pid"
+    claude = fake_claude(tmp_path, f"open({str(pidfile)!r}, 'w').write(str(os.getpid()))\n" + STOP_THEN_SLEEP)
+    started = time.monotonic()
+    result = runner.run_job(str(tmp_path), [], claude, on_stop="end", is_busy=lambda pid: False)
+    assert result.ended and result.code == 0 and time.monotonic() - started < 8
+    time.sleep(0.2)
+    with pytest.raises(ProcessLookupError):
+        os.kill(int(pidfile.read_text()), 0)                                    # ended, not left stopped
+
+
+@pytest.mark.parametrize("busy", [True, None, "boom"])
+def test_end_on_stop_does_not_end_a_busy_or_unknown_session(tmp_path, busy):
+    """Nothing is lost: a session that works, or whose state we cannot read, is simply continued."""
+    claude = fake_claude(tmp_path, "import signal\nos.kill(os.getpid(), signal.SIGSTOP)\nsys.exit(7)")
+
+    def is_busy(pid):
+        if busy == "boom":
+            raise OSError("cannot read the pid file")
+        return busy
+
+    result = runner.run_job(str(tmp_path), [], claude, on_stop="end", is_busy=is_busy)
+    assert result.code == 7 and not result.ended
+
+
+def test_a_child_that_keeps_stopping_is_ended_with_a_clear_error(tmp_path):
+    """For example agents-farm runs as a background job: claude stops again as soon as it is continued."""
+    claude = fake_claude(tmp_path, "import signal\nwhile True:\n    os.kill(os.getpid(), signal.SIGSTOP)")
+    started = time.monotonic()
+    with pytest.raises(RunError, match="keeps stopping"):
+        runner.run_job(str(tmp_path), [], claude)
+    assert time.monotonic() - started < 15
+
+
+def test_a_refusal_is_a_background_refusal_but_a_timeout_or_a_missing_program_is_not(tmp_path, monkeypatch):
+    refuse = fake_claude(tmp_path, "sys.stderr.write('error: unknown option --bg\\n'); sys.exit(1)")
+    with pytest.raises(runner.BackgroundRefused, match="unknown option"):
+        runner.start_background(str(tmp_path), [], refuse)
+    monkeypatch.setattr(runner, "BG_TIMEOUT_S", 0.5)
+    slow = fake_claude(tmp_path, "import time\ntime.sleep(5)")
+    with pytest.raises(RunError, match="did not answer") as err:
+        runner.start_background(str(tmp_path), [], slow)
+    assert not isinstance(err.value, runner.BackgroundRefused)
+    with pytest.raises(RunError, match="cannot start") as err2:
+        runner.start_background(str(tmp_path), [], str(tmp_path / "missing"))
+    assert not isinstance(err2.value, runner.BackgroundRefused)

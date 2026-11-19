@@ -162,6 +162,7 @@ _EPOCH = datetime.fromtimestamp(0, tz=timezone.utc)
 
 
 def _pid_exists(pid: int) -> bool:
+    """Plain liveness check, used only when `ps` is missing. It cannot tell a zombie (`<defunct>`) from a live process."""
     try:
         os.kill(pid, 0)
     except ProcessLookupError:

@@ -7,10 +7,12 @@ import shlex
 import signal
 import subprocess  # nosec B404
 import tempfile
+import time
 from typing import Dict, List, Optional, Set, Tuple
 
 from rich.console import Console
 from rich.markup import escape
+from rich.table import Table
 from rich.text import Text
 from textual import on, work
 from textual.app import App, ComposeResult
@@ -20,52 +22,60 @@ from textual.screen import ModalScreen
 from textual.widgets import Collapsible, DataTable, Footer, Input, Static, TextArea
 
 from .model import STATUS_ORDER, Agent, Snapshot, Status
-from . import killer, picker, runner
+from .registry import load_session_file
+from . import capabilities, helptext, killer, picker, runner
 from . import render as R
 from .search import Query
 
 NARROW_WIDTH = 112   # below this width we show one panel (list or details)
 
-HELP = [
-    ("↑↓ / j k", "move between agents"),
-    ("enter / z", "zoom: details full screen (esc to go back)"),
-    ("1 2 3", "toggle Context / Activity / Plan"),
-    ("e", "expand or collapse all sections"),
-    ("/", "search: type letters (apirf finds api-refactor); filters: status:waiting model:opus project:api"),
-    ("h", "show / hide idle sessions and finished subagents"),
-    ("y", "copy `claude --resume` command for the agent"),
-    ("p", "copy the PID of the agent's process"),
-    ("a", "attach to a background session (leave it with Ctrl+Z: it keeps running)"),
-    ("x", "stop the agent's process (asks first; the default answer is No)"),
-    ("n", "new `claude` session in this terminal: pick a folder, then ctrl+a model, ctrl+s mode, ctrl+d worktree, ctrl+b background, ctrl+f first prompt"),
-    ("o", "open the agent's full log in $PAGER"),
-    ("r", "refresh now"),
-    ("?", "this help"),
-    ("q", "quit"),
-]
-
-
 # Shades used in the new-session dialog.
-AMBER, BLUE, GREEN, RED = "#ffaf00", "#5fafd7", "#87d787", "#d78787"
+AMBER, BLUE, GREEN, RED, GREY = "#ffaf00", "#5fafd7", "#87d787", "#d78787", "#9e9e9e"
 OPT_LABEL, OPT_QUIET, OPT_ON = "grey50", "grey62", "bold white"
 
 
+def _help_grid(rows: List[Tuple[object, ...]], widths: Tuple[int, ...]) -> Table:
+    """A table without borders: the first columns have a fixed width, the last one wraps with a hanging indent."""
+    grid = Table.grid(padding=(0, 1), expand=False)
+    for w in widths:
+        grid.add_column(width=w, no_wrap=True)
+    grid.add_column(ratio=1)
+    for row in rows:
+        grid.add_row(*row)
+    return grid
+
+
 class HelpScreen(ModalScreen):
+    """Keys, and what every symbol, letter and column means. Scrolls with the arrow keys."""
+
     BINDINGS = [Binding("escape,q,question_mark", "dismiss", "Close")]
 
     def compose(self) -> ComposeResult:
-        t = Text()
-        t.append("agents-farm — keys\n\n", style="bold")
-        for key, desc in HELP:
-            t.append(f"  {key:<12}", style="bold cyan")
-            t.append(desc + "\n")
-        t.append("\nStatus  ", style="bold")
-        for st in Status:
-            sym, style = R.STATUS_STYLE[st]
-            t.append(f" {sym} ", style=style)
-            t.append(f" {st.value}  ")
-        t.append("\n\nesc to close", style="grey50")
-        yield Static(t, id="help-body")
+        def title(text: str) -> Static:
+            return Static(Text("\n" + text, style="bold " + AMBER))
+
+        with VerticalScroll(id="help-body"):
+            yield Static(Text("agents-farm: help", style="bold"))
+            for group, keys in helptext.KEY_GROUPS:
+                yield title(group)
+                yield Static(_help_grid([(Text(key, "bold cyan"), desc) for key, desc in keys], (11,)))
+            yield title("Symbols in the first column")
+            rows = []
+            for st in Status:
+                sym, style = R.STATUS_STYLE[st]
+                rows.append((Text(f" {sym} ", style), Text(st.value, "bold"), helptext.STATUS_HELP[st]))
+            yield Static(_help_grid(rows, (3, 9)))
+            yield title("Columns and bars")
+            yield Static(_help_grid([(Text(name, "bold cyan"), desc) for name, desc in helptext.COLUMNS], (8,)))
+            yield title("Good to know")
+            yield Static(_help_grid([("•", tip) for tip in helptext.TIPS], (1,)))
+            close = Text("\n")
+            close.append(" esc ", style="bold #101010 on " + GREY)
+            close.append(" close   (↑ ↓ scroll)", style="grey62")
+            yield Static(close)
+
+    def on_mount(self) -> None:
+        self.query_one("#help-body").focus()
 
     def on_click(self) -> None:
         self.dismiss()
@@ -173,6 +183,120 @@ class ModelPicker(ModalScreen):
         self.dismiss(None)
 
 
+class Explain(ModalScreen[str]):
+    """Why a key does not work on the selected session, and what to do instead. A key in the options runs it."""
+
+    BINDINGS = [Binding("escape,enter,q", "close", "Close")]
+
+    def __init__(self, why: "capabilities.Why"):
+        super().__init__()
+        self._why = why
+        self._keys: Dict[str, str] = {}
+
+    def compose(self) -> ComposeResult:
+        t = Text()
+        t.append("Not now: ", style="bold " + AMBER)
+        t.append(self._why.title + "\n\n", style="bold")
+        for line in self._why.reason:
+            t.append(f"  {line}\n")
+        if self._why.options:
+            t.append("\n  What you can do:\n", style="grey62")
+            for option in self._why.options:
+                key, _, rest = option.partition("  ")
+                if rest and len(key) == 1:
+                    t.append(f"   {key} ", style=f"bold #101010 on {BLUE}")
+                    t.append(f" {rest}\n")
+                    action = capabilities.OPTION_ACTIONS.get(key)
+                    if action:
+                        self._keys[key] = action
+                else:
+                    t.append(f"   • {option}\n")
+        t.append("\n  ")
+        t.append(" esc ", style="bold #101010 on " + GREY)
+        t.append(" close" + ("   (or press a key above to do it)" if self._keys else ""), style="grey62")
+        yield Static(t, id="explain-body")
+
+    def on_key(self, event) -> None:
+        action = self._keys.get(event.key)
+        if action:
+            event.stop()
+            self.dismiss(action)
+
+    def action_close(self) -> None:
+        self.dismiss("")
+
+
+class ConfirmResume(ModalScreen[str]):
+    """Continue a session that has ended. Dismisses with "resume", "fork" or "" (cancel). Enter does the safe default.
+    For a Claude Desktop chat it also offers a fork, and that is the default."""
+
+    BINDINGS = [Binding("y", "choose('resume')", "Continue"), Binding("f", "choose('fork')", "Fork"),
+                Binding("enter", "primary", "Default"), Binding("n,escape", "cancel", "Cancel")]
+
+    def __init__(self, name: str, cwd: str, plan: "runner.ResumePlan"):
+        super().__init__()
+        self._name, self._cwd, self._plan = name, cwd, plan
+
+    def compose(self) -> ComposeResult:
+        t = Text()
+        t.append("Continue this session?\n\n", style="bold")
+        t.append(f"  {self._name}\n", style="bold")
+        t.append(f"  {R.home_short(self._cwd)}\n\n", style="grey70")
+        for style, line in self._plan.lines:
+            t.append(line + "\n", style=style)
+        t.append("\n")
+        for kind, key, label, colour in (("resume", "y", "continue", GREEN), ("fork", "f", "fork", BLUE)):
+            if kind in self._plan.allowed:
+                main = kind == self._plan.primary
+                t.append(f" {key} ", style=f"bold #101010 on {colour}")
+                t.append(f" {label}" + (" (Enter)" if main else "") + "     ", style="bold" if main else "")
+        t.append(" esc ", style="bold #101010 on " + RED)
+        t.append(" cancel", style="")
+        yield Static(t, id="resume-body")
+
+    def action_choose(self, kind: str) -> None:
+        if kind in self._plan.allowed:
+            self.dismiss(kind)
+
+    def action_primary(self) -> None:
+        self.dismiss(self._plan.primary)
+
+    def action_cancel(self) -> None:
+        self.dismiss("")
+
+
+class ConfirmFork(ModalScreen[bool]):
+    """A fork is a new session with the same history. The original is not changed, so Enter or y confirms."""
+
+    BINDINGS = [Binding("y,enter", "confirm", "Fork"), Binding("n,escape", "cancel", "Cancel")]
+
+    def __init__(self, name: str, cwd: str, original_runs: bool):
+        super().__init__()
+        self._name, self._cwd, self._original_runs = name, cwd, original_runs
+
+    def compose(self) -> ComposeResult:
+        t = Text()
+        t.append("Fork this session?\n\n", style="bold")
+        t.append(f"  {self._name}\n", style="bold")
+        t.append(f"  {R.home_short(self._cwd)}\n\n", style="grey70")
+        t.append("  A new session starts with the same history. The original is not changed.\n")
+        if self._original_runs:
+            t.append("  The original keeps running: only the fork is opened here.\n")
+        t.append("  The fork runs in the background: Ctrl+Z leaves it running.\n")
+        t.append("\n ")
+        t.append(" enter ", style=f"bold #101010 on {GREEN}")
+        t.append(" fork      ")
+        t.append(" esc ", style="bold #101010 on " + RED)
+        t.append(" cancel")
+        yield Static(t, id="fork-body")
+
+    def action_confirm(self) -> None:
+        self.dismiss(True)
+
+    def action_cancel(self) -> None:
+        self.dismiss(False)
+
+
 class AttachHint(ModalScreen[bool]):
     """Says how to come back before the terminal is handed over. Enter or y attaches."""
 
@@ -221,7 +345,7 @@ class NewSession(ModalScreen):
         Binding("ctrl+a", "model", "Model", priority=True),
         Binding("ctrl+s", "mode", "Mode", priority=True),
         Binding("ctrl+d", "worktree", "Worktree", priority=True),
-        Binding("ctrl+b", "background", "Background", priority=True),
+        Binding("ctrl+b", "background", "Open now", priority=True),
         Binding("ctrl+f", "prompt", "Prompt", priority=True),
         Binding("ctrl+e", "start", "Start", priority=True),
         Binding("escape", "cancel", "Cancel"),
@@ -277,7 +401,7 @@ class NewSession(ModalScreen):
         def pill(key: str, colour: str) -> Tuple[str, str]:
             return f" {key} ", f"bold #101010 on {colour}"
 
-        options = (("^a", "Model", AMBER), ("^s", "Mode", AMBER), ("^d", "Worktree", AMBER), ("^b", "Background", AMBER), ("^e", "Start", GREEN))
+        options = (("^a", "Model", AMBER), ("^s", "Mode", AMBER), ("^d", "Worktree", AMBER), ("^b", "Open now", AMBER), ("^e", "Start", GREEN))
         moving = ((("^f", "Folders", BLUE),) if prompt_mode else (("tab", "Open folder", BLUE), ("^f", "Prompt", BLUE))) + (("esc", "Cancel", RED),)
         t = Text(no_wrap=True, overflow="ellipsis")
         for i, (caption, colour, keys) in enumerate((("options", AMBER, options), ("navigate", BLUE, moving))):
@@ -369,29 +493,28 @@ class NewSession(ModalScreen):
         t.append(o["mode"], style={"default": OPT_QUIET, "acceptEdits": "bold " + AMBER, "plan": "bold " + BLUE}.get(o["mode"], "bold"))
         t.append("   worktree ", style=OPT_LABEL)
         t.append("on" if o["worktree"] else "off", style="bold " + GREEN if o["worktree"] else OPT_QUIET)
-        t.append("   background ", style=OPT_LABEL)
-        t.append("on" if o["background"] else "off", style="bold " + BLUE if o["background"] else OPT_QUIET)
+        t.append("   open now ", style=OPT_LABEL)
+        t.append("no" if o["background"] else "yes", style="bold " + BLUE if o["background"] else "bold " + GREEN)
         self.query_one("#ns-opts", Static).update(t)
-        # Both ways are always shown; the one that matches the choice is brighter.
-        on = bool(o["background"])
+        # Both choices are always shown; the one that is set is brighter. Every session starts in the background:
+        # "open now" only decides whether it is opened here right away.
+        closed = bool(o["background"])
         bright, dim = "white", "grey58"
         info = Text(no_wrap=True, overflow="ellipsis")
-        info.append(" Background (Ctrl+B): ", style=("bold " + bright) if on else dim)
-        info.append("starts and stays closed. Open it with ", style=bright if on else dim)
-        info.append("a", style="bold cyan")
-        info.append(", leave it with ", style=bright if on else dim)
+        info.append(" Open now: ", style=dim if closed else ("bold " + bright))
+        info.append("starts in the background and opens here. ", style=dim if closed else bright)
         info.append("Ctrl+Z", style="bold cyan")
-        info.append("\n", style=dim)
-        info.append(" Normal session: ", style=dim if on else ("bold " + bright))
-        info.append("opens here at once. Leave with ", style=dim if on else bright)
-        info.append("Ctrl+Z", style="bold cyan")
-        info.append(" (keeps running) or ", style=dim if on else bright)
+        info.append(" leaves it running, ", style=dim if closed else bright)
         info.append("/exit", style="bold")
-        info.append(" (ends it)", style=dim if on else bright)
+        info.append(" ends it", style=dim if closed else bright)
+        info.append("\n")
+        info.append(" Stay here (Ctrl+B): ", style=("bold " + bright) if closed else dim)
+        info.append("starts in the background and stays closed. Open it later with ", style=bright if closed else dim)
+        info.append("a", style="bold cyan")
         self.query_one("#ns-info", Static).update(info)
         warn = ""
         if o["background"] and o["mode"] == "default":
-            warn = "  A background session in default mode stops at its first permission request. Use ctrl+s for acceptEdits or plan."
+            warn = "  A session that stays closed in default mode stops at its first permission request. Use ctrl+s for acceptEdits or plan."
         self.query_one("#ns-warn", Static).update(Text(warn, style="yellow"))
 
     def action_model(self) -> None:
@@ -484,7 +607,7 @@ class FarmApp(App):
     Screen { layout: vertical; }
     #topbar { height: 1; background: $panel; }
     #main { height: 1fr; }
-    #left { width: 68; border: round $primary 40%; border-title-color: $text; }
+    #left { width: 72; border: round $primary 40%; border-title-color: $text; }
     #left:focus-within { border: round $primary; }
     #filter { display: none; margin: 0 0 0 0; }
     #filter.-visible { display: block; }
@@ -500,7 +623,10 @@ class FarmApp(App):
     Screen.-narrow #left { width: 1fr; }
     Screen.-zoom #left { display: none; }
     Screen.-zoom #detail { display: block; }
-    HelpScreen, ConfirmKill, NewSession, AttachHint { align: center middle; }
+    HelpScreen, ConfirmKill, NewSession, AttachHint, ConfirmResume, ConfirmFork, Explain { align: center middle; }
+    #explain-body { width: 100; max-width: 96%; height: auto; padding: 1 2; border: round $warning; background: $panel; }
+    #fork-body { width: 96; max-width: 96%; height: auto; padding: 1 2; border: round $primary; background: $panel; }
+    #resume-body { width: 96; max-width: 96%; height: auto; padding: 1 2; border: round $primary; background: $panel; }
     #attach-body { width: 82; height: auto; padding: 1 2; border: round $success; background: $panel; }
     ModelPicker { align: center middle; }
     #new-body { width: 92%; max-width: 110; height: 90%; max-height: 30; border: round $primary; border-title-color: $text; background: $surface; padding: 0 1; }
@@ -522,10 +648,24 @@ class FarmApp(App):
     #mp-error { height: auto; }
     #mp-body Footer { margin-top: 0; }
     #kill-body { width: 82; height: auto; padding: 1 2; border: round $error; background: $panel; }
-    #help-body { width: 78; height: auto; padding: 1 2; border: round $primary; background: $panel; }
+    #help-body { width: 104; max-width: 96%; height: auto; max-height: 92%; padding: 1 2; border: round $primary; background: $panel; }
     """
 
     BINDINGS = [
+        # The keys of the selected session come first, so a narrow terminal still shows them (see check_action).
+        Binding("n", "new_session", "New"),
+        Binding("a", "attach", "Attach"),
+        Binding("r", "resume", "Resume"),
+        Binding("f", "fork", "Fork"),
+        Binding("x", "kill", "Stop"),
+        Binding("p", "copy_pid", "Copy PID", show=False),
+        # When a key above cannot be used on the selected session, it is greyed out in the footer
+        # and the same key falls through to these, which explain why and what to do instead.
+        Binding("a", "explain('attach')", "Attach", show=False),
+        Binding("r", "explain('resume')", "Resume", show=False),
+        Binding("f", "explain('fork')", "Fork", show=False),
+        Binding("x", "explain('kill')", "Stop", show=False),
+        Binding("p", "explain('copy_pid')", "Copy PID", show=False),
         Binding("j", "cursor_down", "Down", show=False),
         Binding("k", "cursor_up", "Up", show=False),
         Binding("z", "zoom", "Zoom"),
@@ -536,13 +676,8 @@ class FarmApp(App):
         Binding("3", "toggle_section(2)", "Plan", show=False),
         Binding("e", "expand_all", "Expand"),
         Binding("h", "toggle_idle", "Idle"),
-        Binding("y", "copy_resume", "Copy resume"),
-        Binding("n", "new_session", "New session"),
-        Binding("a", "attach", "Attach"),
-        Binding("x", "kill", "Stop"),
-        Binding("p", "copy_pid", "Copy PID", show=False),
         Binding("o", "open_log", "Log"),
-        Binding("r", "refresh_now", "Refresh", show=False),
+        Binding("ctrl+r", "refresh_now", "Refresh", show=False),
         Binding("question_mark", "help", "Help"),
         Binding("q", "quit", "Quit"),
     ]
@@ -566,6 +701,9 @@ class FarmApp(App):
         self._first = True
         self._new_opts: Optional[Dict] = None        # last choices in the new-session dialog
         self._pick_new: Optional[Set[str]] = None   # ids known before `claude` started
+        self._mine: Set[str] = set()                # session ids (or the first characters) that this agents-farm started
+        self._pick_sid: Optional[str] = None        # or the id (first 8 characters) of the session we expect
+        self._pick_until = 0.0                      # give up selecting a new session after this time
         self._windows = getattr(store, "cfg", {}).get("context_window")
 
     # ------------------------------------------------------------------ layout
@@ -592,6 +730,7 @@ class FarmApp(App):
         self.col_keys = [
             table.add_column(" ", key="st", width=3),
             table.add_column("AGENT", key="name", width=R.NAME_WIDTH),
+            table.add_column("SRC", key="src", width=3),
             table.add_column("MODEL", key="model", width=10),
             table.add_column("PID", key="pid", width=7),
             table.add_column("TIME", key="time", width=6),
@@ -630,10 +769,19 @@ class FarmApp(App):
         self._alert_transitions(snap)
         self.snap = snap
         if self._pick_new is not None:
-            fresh = [a for a in snap.agents if a.id not in self._pick_new and not a.parent]
+            # The new session may not be in the first snapshot (its pid file or transcript comes a moment after
+            # `claude` returns, or a refresh that started before the launch delivers an old snapshot): wait for it.
+            if self._pick_sid:
+                fresh = [a for a in snap.agents if not a.parent and a.id.startswith(self._pick_sid)]
+            else:
+                fresh = [a for a in snap.agents if a.id not in self._pick_new and not a.parent]
             if fresh:
-                self.selected_id = max(fresh, key=lambda a: a.last_activity.timestamp() if a.last_activity else 0).id
-            self._pick_new = None
+                picked = max(fresh, key=lambda a: a.last_activity.timestamp() if a.last_activity else 0)
+                self.selected_id = picked.id
+                self._mine.add(picked.id)
+                self._pick_new = self._pick_sid = None
+            elif time.monotonic() > self._pick_until:
+                self._pick_new = self._pick_sid = None
         self._render_table()
         self._render_detail()
         self._render_limits()
@@ -726,7 +874,7 @@ class FarmApp(App):
             selected = self.selected_id
             table.clear()
             for a in rows:
-                table.add_row(*R.row_cells(a, now, self.frame, warn, crit, self._windows, self._hl.get(a.id)), key=a.id)
+                table.add_row(*R.row_cells(a, now, self.frame, warn, crit, self._windows, self._hl.get(a.id), self._is_mine(a)), key=a.id)
             self.row_keys = keys
             if selected in keys:
                 table.move_cursor(row=keys.index(selected), animate=False)
@@ -735,7 +883,7 @@ class FarmApp(App):
             self.selected_id = keys[table.cursor_row] if keys else None
         else:
             for a in rows:
-                for col, cell in zip(self.col_keys, R.row_cells(a, now, self.frame, warn, crit, self._windows, self._hl.get(a.id))):
+                for col, cell in zip(self.col_keys, R.row_cells(a, now, self.frame, warn, crit, self._windows, self._hl.get(a.id), self._is_mine(a))):
                     table.update_cell(a.id, col, cell)
         left = self.query_one("#left")
         left.border_title = f"AGENTS ({len(rows)})"
@@ -754,6 +902,7 @@ class FarmApp(App):
             head.update(Text("No agent selected.\n\nStart a Claude Code session, or press h to show idle ones.", "grey50"))
             for sid in ("#d-context", "#d-activity", "#d-plan"):
                 self.query_one(sid, Static).update("")
+            self.refresh_bindings()
             return
         snap = self.snap
         head.update(R.detail_header(a, snap.updated, snap.warn, snap.crit, self._windows))
@@ -765,6 +914,7 @@ class FarmApp(App):
         prog = R.plan_progress(a)
         self.query_one("#c-plan", Collapsible).title = f"Plan  ·  {prog}" if prog else "Plan"
         self.query_one("#detail").border_title = f"DETAILS · {escape(a.project)}"
+        self.refresh_bindings()                            # the footer greys out the keys this session does not allow
 
     def _render_limits(self) -> None:
         if not self.snap:
@@ -859,23 +1009,37 @@ class FarmApp(App):
         if self.snap:
             self._render_table()
 
-    def action_copy_resume(self) -> None:
-        a = self._selected()
-        if not a:
-            return
-        cmd = f"claude --resume {shlex.quote(a.session_id)}"
-        if a.cwd:
-            cmd = f"cd {shlex.quote(a.cwd)} && {cmd}"
-        self.copy_to_clipboard(cmd)
-        self.notify(cmd, title="copied", timeout=4, markup=False)
+    # ------------------------------------------------- what the selected session allows
+
+    def _why_not(self, action: str) -> "Optional[capabilities.Why]":
+        return capabilities.unavailable(action, self._selected(), getattr(self.store, "cfg", {}))
+
+    def check_action(self, action: str, parameters) -> Optional[bool]:
+        """None greys the key out in the footer. The same key then falls through to a hidden binding (`explain`)."""
+        if action in capabilities.SESSION_KEYS.values():
+            return True if self._why_not(action) is None else None
+        return True
+
+    def _blocked(self, action: str) -> bool:
+        """True (and a pop-up with the reason and the options) if `action` cannot be done now."""
+        why = self._why_not(action)
+        if why is None:
+            return False
+        self.push_screen(Explain(why), self._after_explain)
+        return True
+
+    def action_explain(self, action: str) -> None:
+        if not self._blocked(action):
+            getattr(self, f"action_{action}")()           # it became possible in the meantime
+
+    def _after_explain(self, action: Optional[str]) -> None:
+        if action:
+            getattr(self, f"action_{action}")()
 
     def action_copy_pid(self) -> None:
+        if self._blocked("copy_pid"):
+            return
         a = self._selected()
-        if not a:
-            return
-        if not a.pid:
-            self.notify("no running process for this agent", timeout=3, markup=False)
-            return
         self.copy_to_clipboard(str(a.pid))
         self.notify(f"pid {a.pid}", title="copied", timeout=3, markup=False)
 
@@ -886,18 +1050,9 @@ class FarmApp(App):
 
     def action_kill(self) -> None:
         """x: ask first, then SIGTERM. The checks that make it safe are in killer.py."""
+        if self._blocked("kill"):
+            return
         a = self._selected()
-        if not a:
-            return
-        if not getattr(self.store, "cfg", {}).get("allow_kill", True):
-            self.notify("stopping processes is turned off (allow_kill in the config)", timeout=4, markup=False)
-            return
-        if a.parent:
-            self.notify("a subagent has no process of its own: select its parent session", timeout=4, markup=False)
-            return
-        if not a.pid:
-            self.notify("no running process for this agent", timeout=3, markup=False)
-            return
         state = a.live_status or {Status.WAITING: "waiting", Status.RUNNING: "busy", Status.THINKING: "busy"}.get(a.status, "")
         if a.background:                      # the official command ends it, we send no signal
             lines: List[Tuple[str, str]] = [
@@ -994,23 +1149,74 @@ class FarmApp(App):
         before = {x.id for x in self.snap.agents} if self.snap else set()
         # Every session starts in the background (`claude --bg`), so it keeps running whatever you do next.
         # Without "background" we then open it right away (`claude attach`), and Ctrl+Z leaves it running.
-        self._start_background(cwd, args, claude, env, before, open_now=not choice.get("background"))
+        self._launch(cwd, args, claude, env, before, open_now=not choice.get("background"))
+
+    def _is_mine(self, a: Agent) -> bool:
+        """True if this agents-farm started or resumed the session (the star in the SRC column). Forgotten at exit."""
+        return any(a.id.startswith(m) for m in self._mine)
+
+    def _expect_session(self, before, sid: Optional[str] = None) -> None:
+        """Select the new session as soon as it shows up in a snapshot (for up to 15 seconds)."""
+        self._pick_new, self._pick_sid, self._pick_until = before, sid, time.monotonic() + 15.0
+        if sid:
+            self._mine.add(sid)
+        getattr(self.store, "rediscover", lambda: None)()
+        self.refresh_data()
+
+    def _launch(self, cwd, args, claude, env, before, open_now: bool) -> None:
+        """Start (or resume) a session: in the background, or, when that is turned off, in the foreground."""
+        if not getattr(self.store, "cfg", {}).get("use_background", True):
+            if not open_now:
+                self.notify("background sessions are turned off (use_background in the config)", title="not started",
+                            severity="error", timeout=8, markup=False)
+                return
+            self._start_foreground(cwd, args, claude, env, before, "")
+            return
+        self._start_background(cwd, args, claude, env, before, open_now=open_now)
+
+    def _session_busy(self, pid: int) -> Optional[bool]:
+        """True if the process of a session is working or waits for you, False if idle, None if we cannot tell.
+
+        A plain `claude` writes its process file with its first prompt. With a folder of process files but no file for
+        this pid, nothing has been started yet, so nothing can be lost. Without that folder (an older Claude Code) we
+        cannot tell, and the session is never ended.
+        """
+        root = self._sessions_dir()
+        if not root or not os.path.isdir(root):
+            return None
+        path = os.path.join(root, f"{int(pid)}.json")
+        if not os.path.exists(path):
+            return False
+        sess = load_session_file(path)
+        if sess is None or sess.status not in ("idle", "busy", "waiting"):
+            return None
+        return sess.status != "idle"
 
     def _start_foreground(self, cwd, args, claude, env, before, why: str) -> None:
-        """A normal `claude` in this terminal. Used only when claude will not start a background session here."""
-        self.notify(f"{why} Starting a normal session instead: accept the trust question there. "
-                    "It runs in the foreground, so leave it with /exit.", title="not in the background", severity="warning", timeout=10, markup=False)
+        """A normal `claude` in this terminal, for when a background session is not possible (or turned off).
+
+        Ctrl+Z leaves an idle session: it is ended and `r` continues it later (the same history), from this or any
+        other agents-farm. A busy session is not ended, so nothing is lost.
+        """
+        lead = ""
+        if why:
+            lead = (f"{why} " if why.endswith(".") else f"{why}. ") + "A background session is not possible here, so "
+        tail = "a normal session starts in this terminal. "
+        if runner.is_trust_error(why):
+            tail += "Answer the trust question there. "
+        self.notify(lead + tail + "Ctrl+Z leaves an idle session (r continues it later), /exit ends it.",
+                    title="normal session", severity="warning", timeout=10, markup=False)
         try:
-            with self.suspend():
-                code = runner.run_interactive(cwd, args, claude, env)
+            with runner.shielded_signals(), self.suspend():
+                result = runner.run_job(cwd, args, claude, env, on_stop="end", is_busy=self._session_busy)
         except runner.RunError as exc:
             self.notify(str(exc), title="not started", severity="error", timeout=8, markup=False)
             return
-        self._pick_new = before
-        getattr(self.store, "rediscover", lambda: None)()
-        self.refresh_data()
-        if code != 0:
-            self.notify(f"claude exited with code {code}", severity="warning", timeout=6, markup=False)
+        self._expect_session(before)
+        if result.ended:
+            self.notify("session left with Ctrl+Z. Press r to continue it later (the same history).", timeout=8, markup=False)
+        elif result.code != 0:
+            self.notify(f"claude exited with code {result.code}", severity="warning", timeout=6, markup=False)
 
     # ------------------------------------------------------ background sessions
 
@@ -1018,18 +1224,19 @@ class FarmApp(App):
     def _start_background(self, cwd, args, claude, env, before, open_now: bool = False) -> None:
         try:
             sid = runner.start_background(cwd, args, claude, env)
-        except runner.RunError as exc:
-            if open_now and runner.is_trust_error(str(exc)):
+        except runner.BackgroundRefused as exc:
+            if open_now:              # not trusted, turned off, or not supported: a normal session may still work
                 self.call_from_thread(self._start_foreground, cwd, args, claude, env, before, str(exc))
                 return
+            self.call_from_thread(self.notify, str(exc), title="not started", severity="error", timeout=10, markup=False)
+            return
+        except runner.RunError as exc:
             self.call_from_thread(self.notify, str(exc), title="not started", severity="error", timeout=10, markup=False)
             return
         self.call_from_thread(self._background_started, sid, before, open_now, cwd, claude, env)
 
     def _background_started(self, sid: str, before, open_now: bool, cwd: str, claude: str, env) -> None:
-        self._pick_new = before
-        getattr(self.store, "rediscover", lambda: None)()
-        self.refresh_data()
+        self._expect_session(before, sid)
         if open_now:
             self._open_session(sid, cwd, claude, env)
             return
@@ -1039,7 +1246,7 @@ class FarmApp(App):
     def _open_session(self, sid: str, cwd: str, claude: str, env) -> None:
         """`claude attach <id>` in this terminal. Ctrl+Z ends the attach client and brings us back."""
         try:
-            with self.suspend():
+            with runner.shielded_signals(), self.suspend():
                 code = runner.run_interactive(cwd, ["attach", sid], claude, env, leave_on_stop=True)
         except runner.RunError as exc:
             self.notify(str(exc), title="not attached", severity="error", timeout=8, markup=False)
@@ -1048,14 +1255,47 @@ class FarmApp(App):
         if code != 0:
             self.notify(f"claude exited with code {code}", severity="warning", timeout=6, markup=False)
 
+    def action_resume(self) -> None:
+        """r: continue a session that has ended (the same session). A running session is never continued."""
+        if self._blocked("resume"):
+            return
+        a = self._selected()
+        plan = runner.resume_plan(a.entrypoint or a.origin)
+        cwd = a.cwd if getattr(self.store, "cfg", {}).get("demo") else runner.check_dir(a.cwd)   # _blocked checked that it exists
+        self.push_screen(ConfirmResume(a.name.replace("\n", " ")[:70], cwd, plan), lambda kind: self._do_resume(a, cwd, kind) if kind else None)
+
+    def action_fork(self) -> None:
+        """f: a new session with the same history. Also possible for a session that runs: the original is not touched."""
+        if self._blocked("fork"):
+            return
+        a = self._selected()
+        cwd = a.cwd if getattr(self.store, "cfg", {}).get("demo") else runner.check_dir(a.cwd)
+        self.push_screen(ConfirmFork(a.name.replace("\n", " ")[:70], cwd, bool(a.pid)),
+                         lambda ok: self._do_resume(a, cwd, "fork") if ok else None)
+
+    def _do_resume(self, a: Agent, cwd: str, kind: str) -> None:
+        if self.snap and self.snap.source == "demo":
+            self.notify("demo mode: nothing was resumed", timeout=4, markup=False)
+            return
+        cfg = getattr(self.store, "cfg", {})
+        try:
+            claude = runner.find_claude(cfg)
+            extra = [x for x in (cfg.get("claude_args") or []) if isinstance(x, str)]
+            args = runner.resume_args(a.session_id, fork=(kind == "fork")) + extra
+            env = runner.build_env(cfg.get("claude_env"))
+        except runner.RunError as exc:
+            self.notify(str(exc), title="not resumed", severity="error", timeout=8, markup=False)
+            return
+        before = {x.id for x in self.snap.agents} if self.snap else set()
+        if kind == "resume":
+            self._mine.add(a.session_id)                                 # the same session id: it is ours from now on
+        self._launch(cwd, args, claude, env, before, open_now=True)      # like a new session: --bg, then attach
+
     def action_attach(self) -> None:
         """a: open a background session in this terminal. Ctrl+Z leaves it and it keeps running."""
+        if self._blocked("attach"):
+            return
         a = self._selected()
-        if not a:
-            return
-        if not a.background or not a.pid:
-            self.notify("only a running background session can be attached (start one with n, then ctrl+b)", timeout=5, markup=False)
-            return
         self.push_screen(AttachHint(a.name.replace("\n", " ")[:70], a.pid), lambda ok: self._attach(a) if ok else None)
 
     def _attach(self, a: Agent) -> None:
@@ -1065,13 +1305,13 @@ class FarmApp(App):
         cfg = getattr(self.store, "cfg", {})
         try:
             claude = runner.find_claude(cfg)
-            args = runner.attach_args(a.session_id)
+            sid = runner.short_id(a.session_id)
             env = runner.build_env(cfg.get("claude_env"))
         except runner.RunError as exc:
             self.notify(str(exc), title="not attached", severity="error", timeout=8, markup=False)
             return
         cwd = a.cwd if a.cwd and os.path.isdir(a.cwd) else os.getcwd()
-        self._open_session(args[1], cwd, claude, env)
+        self._open_session(sid, cwd, claude, env)
 
     def _stop_background(self, a: Agent) -> None:
         if self.snap and self.snap.source == "demo":

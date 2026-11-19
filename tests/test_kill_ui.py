@@ -8,9 +8,9 @@ import time
 import pytest
 
 from agents_farm import killer
-from agents_farm.app import ConfirmKill, FarmApp
+from agents_farm.app import ConfirmKill, Explain, FarmApp
 from agents_farm.config import DEFAULTS
-from agents_farm.demo import DemoStore
+from demo_store import DemoStore
 from agents_farm.store import Store
 from test_killer import IGNORE_TERM, SID, log_lines, pidfile, procs  # noqa: F401  (procs is a fixture)
 from test_registry import _transcript
@@ -120,16 +120,22 @@ def test_no_dialog_for_a_subagent_a_dead_session_or_when_turned_off(no_signal):
                 await pilot.pause(0.05)
             raise AssertionError(f"could not select {row_id}")
 
+        async def refused():
+            """No stop dialog: a pop-up explains why (see test_capabilities_ui). Close it to go on."""
+            await pilot.press("x")
+            await pilot.pause(0.2)
+            assert not asking(app)
+            assert isinstance(app.screen, Explain)
+            await pilot.press("escape")
+            await pilot.pause(0.2)
+
         await go("demo-api-refactor/agent-1")                       # a subagent: no process of its own
-        await pilot.press("x")
-        assert not asking(app)
+        await refused()
         await go("demo-lint-pass")                                   # finished: no process
-        await pilot.press("x")
-        assert not asking(app)
+        await refused()
         await go("demo-docs-writer")
         app.store.cfg = dict(DEFAULTS, allow_kill=False)             # turned off in the config
-        await pilot.press("x")
-        assert not asking(app)
+        await refused()
 
     run(scenario)
     assert no_signal == []

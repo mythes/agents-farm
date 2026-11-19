@@ -40,6 +40,7 @@ class Store:
         self.readers: Dict[str, TranscriptReader] = {}
         self.events = EventReader()
         self._last_discover: Optional[float] = None
+        self.source = "claude-code"          # "playground" for the demo (made-up sessions)
 
     # ---------------------------------------------------------------- discovery
 
@@ -128,6 +129,7 @@ class Store:
 
         limits = compute_limits(usage, self.cfg, now)
         return Snapshot(
+            source=self.source,
             agents=agents,
             limits=limits,
             updated=now,

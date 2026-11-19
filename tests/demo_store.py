@@ -5,9 +5,9 @@ from __future__ import annotations
 import random
 from datetime import timedelta
 
-from .config import DEFAULTS
-from .render import context_window
-from .model import ActivityItem, Agent, LimitInfo, PlanItem, Snapshot, Status, utcnow
+from agents_farm.config import DEFAULTS
+from agents_farm.render import context_window
+from agents_farm.model import ActivityItem, Agent, LimitInfo, PlanItem, Snapshot, Status, utcnow
 
 TOOLS = [
     ("Read", "src/auth/session.ts"), ("Grep", "getSession\\("), ("Edit", "src/auth/index.ts"),
@@ -17,7 +17,7 @@ TOOLS = [
 
 
 class DemoStore:
-    cfg = DEFAULTS
+    cfg = dict(DEFAULTS, demo=True)        # the fake folders of demo agents do not exist
 
     def __init__(self):
         self.rng = random.Random(7)  # nosec B311

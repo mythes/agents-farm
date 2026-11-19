@@ -5,7 +5,7 @@ import asyncio
 from textual.widgets import DataTable
 
 from agents_farm.app import FarmApp
-from agents_farm.demo import DemoStore
+from demo_store import DemoStore
 
 
 def run(scenario, size=(130, 32)):
@@ -27,7 +27,7 @@ def pids(app):
 def test_pid_column_shows_pid_or_dash():
     async def scenario(app, pilot):
         table = app.query_one(DataTable)
-        assert [str(c.label) for c in table.columns.values()] == [" ", "AGENT", "MODEL", "PID", "TIME", "CTX"]
+        assert [str(c.label) for c in table.columns.values()] == [" ", "AGENT", "SRC", "MODEL", "PID", "TIME", "CTX"]
         shown = pids(app)
         assert shown["demo-docs-writer"] == "40217"          # a running session
         assert shown["demo-api-refactor/agent-1"] == "—"     # a subagent has no process of its own

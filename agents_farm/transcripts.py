@@ -105,6 +105,8 @@ class TranscriptReader:
             return
 
         ts = parse_ts(d.get("timestamp"))
+        if not a.origin and isinstance(d.get("entrypoint"), str) and d["entrypoint"]:
+            a.origin = sanitize(d["entrypoint"])[:32]        # "cli", "claude-desktop", "sdk-cli": where the session was started
         if isinstance(d.get("cwd"), str) and d["cwd"]:
             a.cwd = sanitize(d["cwd"])
             a.project = os.path.basename(a.cwd.rstrip("/")) or a.project

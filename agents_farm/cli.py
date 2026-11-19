@@ -1,7 +1,7 @@
 """Command line entry point.
 
   agents-farm                 dashboard (Claude Code sessions)
-  agents-farm --demo          dashboard with fake data
+  agents-farm --demo          the dashboard on made-up sessions and a fake claude (nothing real is touched)
   agents-farm status [--json] one-shot summary for scripts / statuslines
   agents-farm hook            hook handler (reads the event JSON on stdin)
   agents-farm hooks-snippet   print the settings.json block that installs the hooks
@@ -20,19 +20,39 @@ from . import __version__
 
 
 def _store(args):
-    if getattr(args, "demo", False):
-        from .demo import DemoStore
-
-        return DemoStore()
     from .store import Store
 
     return Store(since_hours=args.since)
 
 
+def _demo(args, run) -> None:
+    """Build the playground (made-up sessions, a fake claude), call `run(store, home)` on it, and clean up."""
+    from . import playground
+
+    import signal
+
+    def stop(signum, frame):                         # a kill or a closed terminal must still clean up the fake processes
+        raise SystemExit(128 + signum)
+
+    base = playground.up()
+    old = {sig: signal.signal(sig, stop) for sig in (signal.SIGTERM, signal.SIGHUP)}
+    try:
+        run(playground.make_store(base, notify=os.environ.get("AGENTS_FARM_DEMO_ALERTS", "1") != "0"), playground.paths(base)["home"])
+    finally:
+        for sig, handler in old.items():
+            signal.signal(sig, handler)
+        playground.down(base)
+
+
 def cmd_status(args) -> None:
     from .render import fmt_tokens, short_model
 
-    snap = _store(args).refresh()
+    if getattr(args, "demo", False):
+        holder = []
+        _demo(args, lambda store, home: holder.append(store.refresh()))
+        snap = holder[0]
+    else:
+        snap = _store(args).refresh()
     active = [a for a in snap.agents if a.status.value != "idle"]
     if args.json:
         out = {
@@ -90,7 +110,7 @@ def cmd_hooks_snippet(args) -> None:
 def main(argv=None) -> None:
     parser = argparse.ArgumentParser(prog="agents-farm", description="Terminal dashboard for Claude Code agents")
     parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
-    parser.add_argument("--demo", action="store_true", help="use fake data")
+    parser.add_argument("--demo", action="store_true", help="try it on made-up sessions and a fake claude")
     parser.add_argument("--since", type=float, default=None, help="show sessions active in the last N hours (default 12)")
     parser.add_argument("--interval", type=float, default=2.0, help="refresh interval, seconds")
     sub = parser.add_subparsers(dest="cmd")
@@ -114,6 +134,13 @@ def main(argv=None) -> None:
         from .app import FarmApp
         from .config import load_config
 
+        if args.demo:
+            def run(store, home):
+                os.environ["HOME"] = home                 # so paths show as ~/projects/... and nothing real is shown
+                FarmApp(store, interval=args.interval, notify_enabled=bool(store.cfg.get("notify", True))).run()
+
+            _demo(args, run)
+            return
         cfg = load_config()
         FarmApp(_store(args), interval=args.interval, notify_enabled=bool(cfg.get("notify", True))).run()
 

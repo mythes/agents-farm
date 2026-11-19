@@ -13,7 +13,7 @@ from .model import ACTIVE, STATUS_STYLE, Agent, LimitInfo, Snapshot, Status
 from .registry import ENTRYPOINT_LABELS
 
 SPINNER = "◐◓◑◒"
-NAME_WIDTH = 22                           # width of the AGENT column in the list
+NAME_WIDTH = 20                           # width of the AGENT column in the list
 TOOL_COLORS = {
     "Read": "cyan", "Grep": "cyan", "Glob": "cyan",
     "Edit": "yellow", "Write": "yellow", "MultiEdit": "yellow", "NotebookEdit": "yellow",
@@ -137,7 +137,26 @@ def pid_cell(a: Agent) -> Text:
     return Text("—", "grey50")
 
 
-def row_cells(a: Agent, now: datetime, frame: int, warn: float, crit: float, windows=None, highlight=None):
+SRC_STYLES = {"B": "bold #5fafd7", "T": "grey70", "D": "magenta", "S": "grey58", "·": "grey42"}
+
+
+def src_letter(a: Agent) -> str:
+    """Where the session was started: B background, T terminal, D Claude Desktop, S SDK."""
+    if a.background:
+        return "B"
+    return {"claude-desktop": "D", "cli": "T", "sdk-cli": "S"}.get(a.entrypoint or a.origin, "·")
+
+
+def src_cell(a: Agent, mine: bool = False) -> Text:
+    """The letter, and a star when this agents-farm started the session."""
+    letter = src_letter(a)
+    t = Text(letter, SRC_STYLES[letter])
+    if mine:
+        t.append("*", "bold yellow")
+    return t
+
+
+def row_cells(a: Agent, now: datetime, frame: int, warn: float, crit: float, windows=None, highlight=None, mine: bool = False):
     name = a.name.replace("\n", " ")
     prefix = " └ " if a.parent else ""
     max_len = NAME_WIDTH - len(prefix)
@@ -152,6 +171,7 @@ def row_cells(a: Agent, now: datetime, frame: int, warn: float, crit: float, win
     return (
         status_cell(a, frame),
         Text(prefix, "grey50") + name_text,
+        src_cell(a, mine),
         Text(short_model(a.model), "grey70"),
         pid_cell(a),
         Text(elapsed(a, now), "grey70"),
@@ -352,7 +372,7 @@ def top_bar(snap: Snapshot, shown: int, hidden_idle: int) -> Text:
     if hidden_idle:
         t.append(f"   +{hidden_idle} idle hidden", style="grey50")
     t.append("   │ ", style="grey35")
-    if snap.source == "demo":
+    if snap.source in ("demo", "playground"):
         t.append("DEMO data", style="bold magenta")
     elif snap.live_status or snap.hooks_active:
         # Where the exact status comes from: the pid files of the processes, and/or hooks.

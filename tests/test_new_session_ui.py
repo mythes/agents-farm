@@ -10,7 +10,7 @@ from textual.widgets import DataTable, Input, Static
 
 from agents_farm import runner
 from agents_farm.app import FarmApp, ModelPicker, NewSession
-from agents_farm.demo import DemoStore
+from demo_store import DemoStore
 from agents_farm.store import Store
 from test_registry import _transcript
 from test_runner import fake_claude
