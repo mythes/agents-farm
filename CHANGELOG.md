@@ -4,6 +4,19 @@ All notable changes are listed here. The format follows [Keep a Changelog](https
 
 ## [Unreleased]
 
+## [0.6.2] - 2026-11-20
+
+A memory leak fix. Please update: in 0.6.0 and 0.6.1 a dashboard left open grew to about 1 GB of RAM and used a lot of CPU in a day.
+
+### Fixed
+- **Memory leak and high CPU.** The footer was rebuilt on every refresh (every 2 seconds) and the old parts were never freed, about 0.2 MB each time. Now it is rebuilt only when the usable keys change. The heap stays at about 13 MB, and a refresh is about 3 times faster.
+- The spinner timer runs only while an agent is thinking, so an idle dashboard does not wake up 4 times a second.
+- `ps` runs once every 6 seconds, not at every refresh.
+- `events.jsonl` (2 MB) and `actions.log` (256 KB) are trimmed to their newest lines, so they do not grow for ever.
+
+### Added
+- `scripts/perf_check.py` and the `perf-check` skill: a long run on the playground that fails when memory grows or refreshes get slower.
+
 ## [0.6.1] - 2026-11-19
 
 The `auto` permission mode, and the new-session dialog remembers your last choices.

@@ -702,6 +702,8 @@ class FarmApp(App):
         self._first = True
         self._new_opts: Optional[Dict] = None        # last choices in the new-session dialog
         self._pick_new: Optional[Set[str]] = None   # ids known before `claude` started
+        self._spinning = False                         # is the spinner timer running
+        self._footer_state: Optional[tuple] = None     # which session keys the footer last showed as usable
         self._mine: Set[str] = set()                # session ids (or the first characters) that this agents-farm started
         self._pick_sid: Optional[str] = None        # or the id (first 8 characters) of the session we expect
         self._pick_until = 0.0                      # give up selecting a new session after this time
@@ -743,7 +745,7 @@ class FarmApp(App):
         self._apply_size(self.size.width)
         self.refresh_data()
         self.set_interval(self.interval, self.refresh_data)
-        self.set_interval(0.25, self._spin)
+        self._spin_timer = self.set_interval(0.25, self._spin, pause=True)     # runs only while an agent is thinking
 
     def on_resize(self, event) -> None:
         self._apply_size(event.size.width)
@@ -786,6 +788,19 @@ class FarmApp(App):
         self._render_table()
         self._render_detail()
         self._render_limits()
+        self._spin_for(any(a.status == Status.THINKING for a in snap.agents))
+
+    def _spin_for(self, needed: bool) -> None:
+        """A 4 Hz timer that has nothing to animate is only battery drain (it wakes the process four times a second)."""
+        timer = getattr(self, "_spin_timer", None)
+        if timer is None:
+            return
+        if needed and not self._spinning:
+            timer.resume()
+            self._spinning = True
+        elif not needed and self._spinning:
+            timer.pause()
+            self._spinning = False
 
     def _alert_transitions(self, snap: Snapshot) -> None:
         if not self._first and self.notify_enabled:
@@ -903,7 +918,7 @@ class FarmApp(App):
             head.update(Text("No agent selected.\n\nStart a Claude Code session, or press h to show idle ones.", "grey50"))
             for sid in ("#d-context", "#d-activity", "#d-plan"):
                 self.query_one(sid, Static).update("")
-            self.refresh_bindings()
+            self._refresh_footer()
             return
         snap = self.snap
         head.update(R.detail_header(a, snap.updated, snap.warn, snap.crit, self._windows))
@@ -915,7 +930,7 @@ class FarmApp(App):
         prog = R.plan_progress(a)
         self.query_one("#c-plan", Collapsible).title = f"Plan  ·  {prog}" if prog else "Plan"
         self.query_one("#detail").border_title = f"DETAILS · {escape(a.project)}"
-        self.refresh_bindings()                            # the footer greys out the keys this session does not allow
+        self._refresh_footer()                             # the footer greys out the keys this session does not allow
 
     def _render_limits(self) -> None:
         if not self.snap:
@@ -1011,6 +1026,17 @@ class FarmApp(App):
             self._render_table()
 
     # ------------------------------------------------- what the selected session allows
+
+    def _refresh_footer(self) -> None:
+        """Tell the footer to redraw, but only when the set of usable keys changed.
+
+        Every call makes the footer rebuild all its key widgets, and Textual does not free the old ones: calling it on
+        every refresh (every 2 s) leaked about 0.2 MB each time, hours of it gigabytes. See tests/test_performance.py.
+        """
+        usable = tuple(self._why_not(action) is None for action in capabilities.SESSION_KEYS.values())
+        if usable != self._footer_state:
+            self._footer_state = usable
+            self.refresh_bindings()
 
     def _why_not(self, action: str) -> "Optional[capabilities.Why]":
         return capabilities.unavailable(action, self._selected(), getattr(self.store, "cfg", {}))

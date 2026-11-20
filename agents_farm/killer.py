@@ -25,7 +25,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import List, Optional, Set, Tuple
 
-from .config import ACTIONS_LOG
+from .config import ACTIONS_KEEP_BYTES, ACTIONS_LOG, ACTIONS_MAX_BYTES, trim_log
 from .registry import START_TOLERANCE_S, LiveSession, load_session_file, process_start_times
 
 TERM_WAIT_S = 3.0        # how long we wait for SIGTERM before offering SIGKILL
@@ -159,6 +159,8 @@ def log_action(target: Target, sig: signal.Signals, result: str, path: Optional[
         fd = os.open(path, os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o600)
         with os.fdopen(fd, "a", encoding="utf-8") as fh:
             fh.write(json.dumps(record, ensure_ascii=False) + "\n")
+        if path == ACTIONS_LOG:
+            trim_log(path, ACTIONS_MAX_BYTES, ACTIONS_KEEP_BYTES)
     except OSError:
         pass
 

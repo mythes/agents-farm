@@ -27,6 +27,7 @@ from .model import sanitize
 
 MAX_FILE_BYTES = 64 * 1024
 START_TOLERANCE_S = 2.0           # allowed difference between the file and `ps`
+PS_TTL_S = 6.0                   # spawn `ps` at most this often for the same set of pids (a new pid file: at once)
 SESSION_ID_RE = re.compile(r"^[A-Za-z0-9._-]{1,128}$")
 ENTRYPOINT_LABELS = {"claude-desktop": "Desktop", "cli": "CLI"}
 
@@ -124,6 +125,20 @@ def load_session_file(path: str) -> Optional[LiveSession]:
 class Registry:
     def __init__(self, root: Optional[str]):
         self.root = root
+        self._ps_key: tuple = ()
+        self._ps_at = 0.0
+        self._ps_value: Optional[Dict[int, float]] = {}
+
+    def _start_times(self, pids: List[int]) -> Optional[Dict[int, float]]:
+        """`process_start_times`, but not on every refresh: a `ps` process every 2 s costs more than the rest of a
+        refresh together (measured: 31 of 38 ms). A new or removed pid file is seen at once; a process that has just
+        ended is seen within PS_TTL_S seconds. Stopping a process makes its own check (killer.py), never this one."""
+        key = tuple(sorted(pids))
+        now = time.monotonic()
+        if PS_TTL_S > 0 and key == self._ps_key and now - self._ps_at < PS_TTL_S:
+            return self._ps_value
+        self._ps_key, self._ps_at, self._ps_value = key, now, process_start_times(pids)
+        return self._ps_value
 
     @property
     def available(self) -> bool:
@@ -137,7 +152,7 @@ class Registry:
         sessions = [s for s in (load_session_file(p) for p in glob.glob(os.path.join(self.root, "*.json"))) if s]
         if not sessions:
             return {}
-        starts = process_start_times([s.pid for s in sessions])
+        starts = self._start_times([s.pid for s in sessions])
 
         running: Dict[str, LiveSession] = {}
         for s in sessions:

@@ -1,3 +1,3 @@
 """agents-farm: terminal dashboard for Claude Code agents."""
 
-__version__ = "0.6.1"
+__version__ = "0.6.2"

@@ -14,7 +14,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Dict, Optional, Tuple
 
-from .config import EVENTS_PATH
+from .config import EVENTS_KEEP_BYTES, EVENTS_MAX_BYTES, EVENTS_PATH, trim_log
 from .model import Status, parse_ts, sanitize, utcnow
 from .tail import Tail
 
@@ -55,6 +55,7 @@ def run_hook() -> None:
         fd = os.open(EVENTS_PATH, os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o600)
         with os.fdopen(fd, "a", encoding="utf-8") as fh:
             fh.write(json.dumps({k: v for k, v in event.items() if v is not None}) + "\n")
+        trim_log(EVENTS_PATH, EVENTS_MAX_BYTES, EVENTS_KEEP_BYTES)     # the file must not grow for ever
     except Exception:  # noqa: BLE001  # nosec B110
         pass
     sys.exit(0)

@@ -53,6 +53,7 @@ scripts/make_demo.sh                # rebuild the feature demos in docs/demo/ (o
 | Skill | Use it when |
 |---|---|
 | `check` | before every commit or PR |
+| `perf-check` | you change code that runs on every refresh (app, store, registry, render, events), or before a release |
 | `update-demo` | the UI changed and the README demo is out of date |
 | `docs-style` | you write or translate any text |
 | `sync-backlog` | a task is done or added (keeps `docs/backlog.md` and GitHub issues in sync) |

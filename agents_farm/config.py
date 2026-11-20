@@ -92,3 +92,31 @@ def save_state(update: dict, path=None) -> None:
         os.replace(tmp, path)
     except (OSError, ValueError, TypeError):
         return
+
+
+EVENTS_MAX_BYTES, EVENTS_KEEP_BYTES = 2 * 1024 * 1024, 512 * 1024      # events.jsonl: about 4 days of hooks is 0.8 MB
+ACTIONS_MAX_BYTES, ACTIONS_KEEP_BYTES = 256 * 1024, 64 * 1024
+
+
+def trim_log(path: str, max_bytes: int, keep_bytes: int) -> bool:
+    """Keep a log file from growing for ever: above `max_bytes`, keep only the newest `keep_bytes` (whole lines).
+
+    The file keeps its owner-only mode. It never raises. A line that another process appends at the very moment of
+    the rewrite can be lost: these logs are only status events and a record of your own actions, so that is fine.
+    Returns True if the file was trimmed.
+    """
+    try:
+        if os.path.getsize(path) <= max_bytes:
+            return False
+        with open(path, "rb") as fh:
+            fh.seek(-keep_bytes, os.SEEK_END)
+            data = fh.read()
+        data = data[data.find(b"\n") + 1:]                      # drop the cut line at the start
+        tmp = f"{path}.trim{os.getpid()}"
+        fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(fd, "wb") as out:
+            out.write(data)
+        os.replace(tmp, path)
+        return True
+    except (OSError, ValueError):
+        return False
