@@ -17,7 +17,7 @@ Copy this list into the task list and tick it off while you work.
 - [ ] 1. The working tree is clean or holds only this release's work (`git status --short`), you are on `main`, `git pull --ff-only` works, and the last CI run on `main` is green (`gh run list --branch main --limit 1`)
 - [ ] 2. Choose the version with the user (`0.x.y`; suggest one from `git log <last-tag>..HEAD --oneline`: fix = patch, new feature = minor)
 - [ ] 3. Review the backlog: `docs/backlog.md` and the GitHub issues match what was built (run the `sync-backlog` skill)
-- [ ] 4. Update the **README** and `docs/` for what changed: new keys, columns, features, install steps, the help text (`helptext.py`) and `docs/rules.md` (run the `docs-style` skill on every text you write)
+- [ ] 4. Update the **README** and `docs/` for what changed: new keys, columns, features, install steps, the help text (`helptext.py`) and `docs/rules.md` (run the `docs-style` skill on every text you write). **Change the version in the install command** (`--ref vX.Y.Z` in the README `curl ... | bash` line): `grep -rn "<old version>" README.md docs scripts` must find nothing
 - [ ] 5. Rebuild the **demos** only if the UI changed in a visible way (run the `update-demo` skill)
 - [ ] 6. Run the `perf-check` skill when code that runs on every refresh changed (app, store, registry, render, events)
 - [ ] 7. Bump the version in **both** `pyproject.toml` and `agents_farm/__init__.py` (a test checks they are equal)
