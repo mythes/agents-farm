@@ -150,3 +150,127 @@ def test_the_actions_log_is_trimmed_too(tmp_path, monkeypatch):
         killer.log_action(Target(pid=1000 + i, session_id="s", name="n" * 50), signal.SIGTERM, "sent", path)
     assert os.path.getsize(path) <= 3000 + 500
     assert lines(path)[-1]["pid"] == 1059
+
+
+# ------------------------------------------------------------------------------- only what changed is drawn
+
+def _quiet_snapshot():
+    """A snapshot that does not change by itself."""
+    snap = DemoStore().refresh()
+    for a in snap.agents:
+        a.transcript = a.transcript or "x"
+    return snap
+
+
+def _count_updates(monkeypatch):
+    from textual.widgets import DataTable, Static
+    cells, texts = [], []
+    cell, update = DataTable.update_cell, Static.update
+    monkeypatch.setattr(DataTable, "update_cell", lambda self, row, col, value, **k: cells.append((row, getattr(col, "value", col))) or cell(self, row, col, value, **k))
+    monkeypatch.setattr(Static, "update", lambda self, content="", **k: texts.append(self.id) or update(self, content, **k))
+    return cells, texts
+
+
+def test_a_refresh_with_the_same_data_draws_nothing(monkeypatch):
+    cells, texts = _count_updates(monkeypatch)
+
+    async def scenario(app, pilot):
+        snap = _quiet_snapshot()
+        app._apply_snapshot(snap)
+        cells.clear(), texts.clear()
+        for _ in range(20):
+            app._apply_snapshot(snap)
+        assert cells == [] and texts == []
+
+    run(scenario, DemoStore())
+
+
+def test_every_change_is_still_drawn(monkeypatch):
+    from agents_farm.model import ActivityItem, PlanItem
+    cells, texts = _count_updates(monkeypatch)
+
+    async def scenario(app, pilot):
+        snap = _quiet_snapshot()
+        app._apply_snapshot(snap)
+        a = app._selected()
+
+        def after(change):
+            cells.clear(), texts.clear()
+            change()
+            app._apply_snapshot(snap)
+            return set(cells), set(texts) - {None}            # None: the title of a section (its count)
+
+        assert after(lambda: a.activity.append(ActivityItem(snap.updated, "Bash", "new"))) == (set(), {"d-activity"})
+        assert after(lambda: a.plan.append(PlanItem("x", "pending"))) == (set(), {"d-plan"})
+        assert after(lambda: a.files.update({"new.py": {"R": 1, "E": 0}})) == (set(), {"d-context"})
+        changed, drawn = after(lambda: setattr(a, "context_tokens", a.context_tokens + 30_000))
+        assert changed == {(a.id, "ctx")} and drawn == {"d-head"}
+        # only the colour of the cell changes (verified -> not verified): the text is the same
+        changed, drawn = after(lambda: setattr(a, "pid_verified", False))
+        assert changed == {(a.id, "pid")} and "d-head" in drawn
+        changed, drawn = after(lambda: setattr(a, "status", Status.ERROR))
+        assert (a.id, "st") in changed and {"topbar", "d-head"} <= drawn
+        assert "limits" in after(lambda: setattr(snap.limits[0], "used", snap.limits[0].used * 2))[1]
+
+    run(scenario, DemoStore())
+
+
+def test_the_screen_is_right_after_no_selection_and_back():
+    from textual.widgets import Static
+
+    async def scenario(app, pilot):
+        snap = _quiet_snapshot()
+        app._apply_snapshot(snap)
+        shown = {i: str(app.query_one(i, Static).render()) for i in ("#d-head", "#d-context", "#d-activity", "#d-plan")}
+        selected = app.selected_id
+        app.selected_id = None
+        app._render_detail()
+        assert "No agent selected" in str(app.query_one("#d-head", Static).render()) and str(app.query_one("#d-plan", Static).render()) == ""
+        app.selected_id = selected
+        app._render_detail()
+        assert {i: str(app.query_one(i, Static).render()) for i in shown} == shown
+
+    run(scenario, DemoStore())
+
+
+def test_the_spinner_stops_at_the_right_symbol():
+    from textual.widgets import DataTable
+
+    async def scenario(app, pilot):
+        snap = _quiet_snapshot()
+        a = next(x for x in snap.agents if x.status == Status.THINKING)
+        app._apply_snapshot(snap)
+        app._spin()                                       # the spinner writes the cell on its own
+        a.status = Status.RUNNING
+        app._apply_snapshot(snap)
+        assert "●" in app.query_one(DataTable).get_cell(a.id, "st").plain
+
+    run(scenario, DemoStore())
+
+
+def test_the_look_of_a_text_covers_the_style():
+    from rich.text import Text
+    from agents_farm.render import look
+    assert Text("a", "red") == Text("a", "green")         # why Text.__eq__ is not used
+    assert look(Text("a", "red")) != look(Text("a", "green")) and look(Text("a", "red")) == look(Text("a", "red"))
+
+
+def test_one_line_bars_reach_the_screen_without_a_new_layout():
+    from datetime import timedelta
+
+    def row(app, selector):
+        y = app.query_one(selector).region.y
+        return "".join(s.text for s in app.screen._compositor.render_strips()[y])
+
+    async def scenario(app, pilot):
+        snap = _quiet_snapshot()
+        app._apply_snapshot(snap)
+        await pilot.pause(0.2)
+        top, limits = row(app, "#topbar"), row(app, "#limits")
+        snap.updated += timedelta(hours=1)
+        snap.limits[0].used = 1
+        app._apply_snapshot(snap)
+        await pilot.pause(0.2)
+        assert row(app, "#topbar") != top and row(app, "#limits") != limits
+
+    run(scenario, DemoStore(), size=(160, 40))         # wide: the clock must fit

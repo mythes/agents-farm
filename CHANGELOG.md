@@ -4,6 +4,16 @@ All notable changes are listed here. The format follows [Keep a Changelog](https
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-11-23
+
+The dashboard uses less CPU, and the README shows the skills panel.
+
+### Changed
+- A refresh draws only what changed: the cells, the details and the bars. With one working session the CPU use fell from about 2.6% to about 1.0% of one core, and the terminal gets much less output (measured on macOS, 130x40).
+
+### Added
+- README: a demo of the skills, plugins and MCP servers of a folder (`Ctrl+T` in the new-session dialog).
+
 ## [0.8.0] - 2026-11-23
 
 The new-session dialog shows what Claude finds in a folder.

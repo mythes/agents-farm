@@ -23,7 +23,8 @@ The dashboard may run for days, so a small cost per refresh (every 2 seconds) be
    ```
 
    It fails when the heap grows more than 6 MB, a refresh takes more than 150 ms, or the last quarter is more than 2 times slower than the first.
-3. Compare with the last numbers: about 13 MB of heap at the plateau, about 40 ms per refresh on real data (most of it is the `ps` call).
+3. Compare with the last numbers: about 12 MB of heap at the plateau, about 3 ms per refresh in the playground.
+4. A refresh with the same data must draw nothing (`tests/test_performance.py`). Use `_put()` and `_put_title()` in `app.py`, never `Static.update` on every refresh.
 
 ## If it fails
 

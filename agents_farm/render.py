@@ -179,6 +179,12 @@ def row_cells(a: Agent, now: datetime, frame: int, warn: float, crit: float, win
     )
 
 
+def look(t: Text) -> tuple:
+    """Everything that decides how a text looks. Two texts with the same look need no new drawing.
+    (`Text.__eq__` is not enough: it ignores the base style, so a cell that only changes its colour would be equal.)"""
+    return (t.plain, str(t.style), tuple(t.spans), t.no_wrap, t.overflow)
+
+
 # --------------------------------------------------------------------- detail
 
 

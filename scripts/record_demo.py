@@ -54,8 +54,12 @@ SCENARIOS = {
 
     # The new-session dialog: folders, model, mode, a multi-line first prompt.
     "new-session": (110, 32,
-                    find("apir") + [(1.2, b"n"), (1.6, CTRL_T), (2.6, CTRL_T)] + typed("te") + [(1.6, TAB), (1.6, CTRL_A)] + typed("so") + [(1.2, ENTER), (1.0, CTRL_S), (1.2, CTRL_F)]
+                    find("apir") + [(1.2, b"n")] + typed("te") + [(1.6, TAB), (1.6, CTRL_A)] + typed("so") + [(1.2, ENTER), (1.0, CTRL_S), (1.2, CTRL_F)]
                     + typed("fix it", 0.06) + [(0.4, ENTER)] + typed("lint", 0.06) + [(1.4, CTRL_F), (2.0, ESC)] + clear()),
+
+    # The side panel of the new-session dialog: files, or skills, plugins and MCP servers (Ctrl+T).
+    "claude-panel": (110, 28,
+                     find("apir") + [(1.0, b"n"), (2.2, CTRL_T), (3.4, b"\x1b[B"), (3.0, b"")]),
 
     # "Open now" or "stay here", and how to come back from a session (Ctrl+Z).
     "background": (110, 32,

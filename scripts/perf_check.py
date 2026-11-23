@@ -26,7 +26,8 @@ from agents_farm import playground  # noqa: E402
 from agents_farm.app import FarmApp  # noqa: E402
 
 # Limits. The leak found in v0.6.1 was 0.21 MB per refresh (258 MB at 1200 refreshes).
-WARMUP = 1500               # refreshes before we start to measure (the heap plateaus at about 13 MB after them)
+WARMUP = 3000               # refreshes before we start to measure. The table cache of Textual (10000 entries) is full after
+                            # about 2000 (when every fifth one is drawn), and the heap then stays at about 12 MB (checked up to 12000 refreshes)
 MAX_GROWTH_MB = 3.0          # heap growth after the warm-up
 MAX_MS_PER_REFRESH = 150.0   # one refresh (scan + apply); it was about 40 ms
 MAX_SLOWDOWN = 2.0           # the last quarter may not be slower than the first quarter by more than this factor
@@ -40,9 +41,9 @@ async def measure(refreshes: int) -> dict:
         async with app.run_test(size=(130, 40)) as pilot:
             await pilot.pause(1.0)
             tracemalloc.start()                                      # trace from the start: old objects must be counted too
-            for i in range(WARMUP):                                  # caches fill up in the first ~1500 refreshes
+            for i in range(WARMUP):                                  # caches fill up first
                 app._apply_snapshot(store.refresh())
-                if i % 20 == 0:
+                if i % 5 == 0:                                   # draw often: only drawing fills the caches
                     await pilot.pause(0.001)
             gc.collect()
             start_heap = tracemalloc.get_traced_memory()[0]

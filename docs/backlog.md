@@ -219,7 +219,7 @@ Checked on a real machine with Claude Code 2.1.319 / 2.1.325. These facts change
 **Not done / ideas:** a clean "terminal output" block in zoom from `claude logs <id>` (it prints raw escape codes), and a sign for background sessions in the list (the details say `background`).
 **Risks:** `Ctrl+Z` in iTerm2 and Terminal.app (S3 list); `claude` command names can change between versions (check `claude --help` and fail softly).
 
-### Done after the plan (v0.4 to v0.8)
+### Done after the plan (v0.4 to v0.9)
 
 Things we built because testing showed they were needed. The exact rules are in [rules.md](rules.md).
 
@@ -234,6 +234,7 @@ Things we built because testing showed they were needed. The exact rules are in 
 | SRC column: where a session was started (`B` background, `T` terminal, `D` Desktop, `S` SDK), a star for the ones this agents-farm started | 0.6.0 |
 | `t` changes the period of the list (24 hours, 3 days, 7 days); subagents that handed back their result are shown as done | 0.7.0 |
 | New-session dialog: `Ctrl+T` shows the skills, plugins and MCP servers of the folder (`entities.py`). Not checked with a real installed plugin: the format of `installed_plugins.json` is an assumption | 0.8.0 |
+| A refresh draws only what changed (less CPU) | 0.9.0 |
 | Help (`?`) decodes the keys, symbols, SRC letters and columns | 0.6.0 |
 | `agents-farm --demo` runs on a playground (made-up sessions, real fake processes, a fake `claude`), and the README shows each feature in its own short demo | 0.6.0 |
 | Install with Homebrew (`brew install mythes/tap/agents-farm`) | 0.4.1 |

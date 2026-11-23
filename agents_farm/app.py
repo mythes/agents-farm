@@ -33,6 +33,7 @@ from .search import Query
 PERIODS = (24, 72, 168)   # hours, the steps of the t key
 PANEL_DELAY_S = 0.15      # the Claude panel of the new-session dialog is read when the marker rests on a folder
 PERIOD_DELAY_S = 0.3      # several quick presses of t load only the last period
+ONE_LINE = ("#topbar", "#limits")      # widgets with a fixed height: a new text never moves anything else
 NARROW_WIDTH = 112   # below this width we show one panel (list or details)
 
 # Shades used in the new-session dialog.
@@ -784,6 +785,7 @@ class FarmApp(App):
         self._new_opts: Optional[Dict] = None        # last choices in the new-session dialog
         self._pick_new: Optional[Set[str]] = None   # ids known before `claude` started
         self._spinning = False                         # is the spinner timer running
+        self._shown: Dict[str, object] = {}            # what is on the screen now, by widget (see _put)
         self._footer_state: Optional[tuple] = None     # which session keys the footer last showed as usable
         self._mine: Set[str] = set()                # session ids (or the first characters) that this agents-farm started
         self._pick_sid: Optional[str] = None        # or the id (first 8 characters) of the session we expect
@@ -998,11 +1000,27 @@ class FarmApp(App):
         else:
             for a in rows:
                 for col, cell in zip(self.col_keys, R.row_cells(a, now, self.frame, warn, crit, self._windows, self._hl.get(a.id), self._is_mine(a))):
-                    table.update_cell(a.id, col, cell)
+                    if R.look(table.get_cell(a.id, col)) != R.look(cell):
+                        table.update_cell(a.id, col, cell)
         left = self.query_one("#left")
-        left.border_title = R.list_title(self.snap, len(rows), self._period)
-        left.border_subtitle = escape(f"search: {self.filter_text}") if self.filter_text else ""
-        self.query_one("#topbar", Static).update(R.top_bar(self.snap, len(rows), hidden))
+        self._put_title(left, "border_title", R.list_title(self.snap, len(rows), self._period))
+        self._put_title(left, "border_subtitle", escape(f"search: {self.filter_text}") if self.filter_text else "")
+        self._put("#topbar", R.top_bar(self.snap, len(rows), hidden))
+
+    def _put(self, selector: str, text: Text) -> None:
+        """Update a Static only when the text looks different. An update makes Textual lay out the whole screen again,
+        and most refreshes (every 2 s) bring nothing new: measured, this was the largest part of the CPU use."""
+        look = R.look(text)
+        if self._shown.get(selector) != look:
+            self._shown[selector] = look
+            self.query_one(selector, Static).update(text, layout=selector not in ONE_LINE)
+
+    def _put_title(self, widget, name: str, title: str) -> None:
+        """The same for a border title (setting it redraws the widget even when it is equal)."""
+        key = f"{widget.id}.{name}"
+        if self._shown.get(key) != title:
+            self._shown[key] = title
+            setattr(widget, name, title)
 
     def _stay_near(self, keys: List[str]) -> Optional[str]:
         """The row to select in the new list: the same session, or the nearest one when it is gone.
@@ -1020,30 +1038,29 @@ class FarmApp(App):
 
     def _render_detail(self) -> None:
         a = self._selected()
-        head = self.query_one("#d-head", Static)
         if not a:
-            head.update(Text("No agent selected.\n\nStart a Claude Code session, or press h to show idle ones.", "grey50"))
+            self._put("#d-head", Text("No agent selected.\n\nStart a Claude Code session, or press h to show idle ones.", "grey50"))
             for sid in ("#d-context", "#d-activity", "#d-plan"):
-                self.query_one(sid, Static).update("")
+                self._put(sid, Text(""))
             self._refresh_footer()
             return
         snap = self.snap
-        head.update(R.detail_header(a, snap.updated, snap.warn, snap.crit, self._windows))
-        self.query_one("#d-context", Static).update(R.detail_context(a))
-        self.query_one("#d-activity", Static).update(R.detail_activity(a))
-        self.query_one("#d-plan", Static).update(R.detail_plan(a))
+        self._put("#d-head", R.detail_header(a, snap.updated, snap.warn, snap.crit, self._windows))
+        self._put("#d-context", R.detail_context(a))
+        self._put("#d-activity", R.detail_activity(a))
+        self._put("#d-plan", R.detail_plan(a))
         self.query_one("#c-context", Collapsible).title = f"Context  ·  {len(a.files)} files"
         self.query_one("#c-activity", Collapsible).title = f"Activity  ·  {len(a.activity)} events"
         prog = R.plan_progress(a)
         self.query_one("#c-plan", Collapsible).title = f"Plan  ·  {prog}" if prog else "Plan"
-        self.query_one("#detail").border_title = f"DETAILS · {escape(a.project)}"
+        self._put_title(self.query_one("#detail"), "border_title", f"DETAILS · {escape(a.project)}")
         self._refresh_footer()                             # the footer greys out the keys this session does not allow
 
     def _render_limits(self) -> None:
         if not self.snap:
             return
         s = self.snap
-        self.query_one("#limits", Static).update(R.limits_line(s.limits, s.updated, self.size.width, s.warn, s.crit))
+        self._put("#limits", R.limits_line(s.limits, s.updated, self.size.width, s.warn, s.crit))
 
     def _spin(self) -> None:
         if not self.snap or not self._screen_ready():

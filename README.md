@@ -24,7 +24,12 @@ A live list with a status symbol: `?` waits for you, `!` error, `●` running, `
 ### 3. Start a session
 ![new session](docs/demo/new-session.gif)
 
-`n` opens a folder browser: type letters to filter folders (fuzzy), `Tab` opens a folder, a preview shows its content and git branch. `Ctrl+A` picks the model, `Ctrl+S` the permission mode (`default`, `acceptEdits`, `auto`, `plan`), `Ctrl+D` a git worktree. `Ctrl+T` switches the side panel between the files and what Claude finds there: skills, plugins and MCP servers. `Ctrl+F` opens a multi-line first prompt, `Ctrl+E` starts. The dialog remembers your last choices, also after a restart.
+`n` opens a folder browser: type letters to filter folders (fuzzy), `Tab` opens a folder, a preview shows its content and git branch. `Ctrl+A` picks the model, `Ctrl+S` the permission mode (`default`, `acceptEdits`, `auto`, `plan`), `Ctrl+D` a git worktree. `Ctrl+F` opens a multi-line first prompt, `Ctrl+E` starts. The dialog remembers your last choices, also after a restart.
+
+#### See the skills of a folder
+![skills, plugins and MCP servers of a folder](docs/demo/claude-panel.gif)
+
+Press `n`, mark a folder, and press `Ctrl+T`: the side panel lists its skills, plugins and MCP servers with a short text, so you know what the session will have. `P` comes from the project, `U` from you. `Ctrl+T` goes back to the files. Only files are read, nothing is started, and secrets of MCP servers are never shown.
 
 ### 4. Leave a session and come back
 ![background](docs/demo/background.gif)
@@ -91,7 +96,7 @@ The script does not edit your shell config or `~/.claude/settings.json`. `--unin
 Install without a clone (read the script first: [scripts/install.sh](scripts/install.sh)):
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/mythes/agents-farm/main/scripts/install.sh | bash -s -- --ref v0.8.0
+curl -fsSL https://raw.githubusercontent.com/mythes/agents-farm/main/scripts/install.sh | bash -s -- --ref v0.9.0
 ```
 
 > **Why `af`?** It is short, and at the time of writing it is free in Homebrew, PyPI and Debian. Two old tools use the same name: an npm package (the AppFog CLI) and a Rust crate (an HTTP fetch tool). If you installed one of them, or you have `alias af=…`, the script will notice and keep your command. The short name is only a link made on your machine, so the package itself does not claim `af` for everyone.
