@@ -23,14 +23,15 @@ from textual.screen import ModalScreen
 from textual.worker import get_current_worker
 from textual.widgets import Collapsible, DataTable, Footer, Input, Static, TextArea
 
-from .model import STATUS_ORDER, Agent, Snapshot, Status
+from .model import STATUS_ORDER, Agent, Snapshot, Status, sanitize
 from .registry import load_session_file
-from . import capabilities, helptext, killer, picker, runner
+from . import capabilities, entities, helptext, killer, picker, runner
 from . import config as settings
 from . import render as R
 from .search import Query
 
 PERIODS = (24, 72, 168)   # hours, the steps of the t key
+PANEL_DELAY_S = 0.15      # the Claude panel of the new-session dialog is read when the marker rests on a folder
 PERIOD_DELAY_S = 0.3      # several quick presses of t load only the last period
 NARROW_WIDTH = 112   # below this width we show one panel (list or details)
 
@@ -352,17 +353,21 @@ class NewSession(ModalScreen):
         Binding("ctrl+d", "worktree", "Worktree", priority=True),
         Binding("ctrl+b", "background", "Open now", priority=True),
         Binding("ctrl+f", "prompt", "Prompt", priority=True),
+        Binding("ctrl+t", "panel", "Claude / files", priority=True),
         Binding("ctrl+e", "start", "Start", priority=True),
         Binding("escape", "cancel", "Cancel"),
     ]
 
-    def __init__(self, cwd: str, agents: List[Agent], opts: Dict, extra_models: List[str]):
+    def __init__(self, cwd: str, agents: List[Agent], opts: Dict, extra_models: List[str], claude_panel: bool = False):
         super().__init__()
         self._cwd = cwd
         self._agents, self._extra = agents, extra_models
         self._recents = picker.recent_dirs(agents)
         self.opts = dict(opts)
         self._rows: List[picker.Row] = []
+        self._claude_panel = claude_panel        # the side panel: the files of the folder, or what Claude finds there
+        self._found: Dict[str, entities.Entities] = {}      # by folder, as long as the dialog is open
+        self._panel_timer = None
         self._prompt_mode = False       # True: the prompt editor takes the place of the folder list
 
     def compose(self) -> ComposeResult:
@@ -377,7 +382,7 @@ class NewSession(ModalScreen):
             yield Static(id="ns-info")
             yield Static(id="ns-warn")
             yield Static(id="ns-error")
-            yield Static(self._hints(), id="ns-hints")
+            yield Static(self._hints(claude=self._claude_panel), id="ns-hints")
 
     def on_mount(self) -> None:
         self.query_one("#new-body").border_title = "NEW SESSION"
@@ -386,7 +391,7 @@ class NewSession(ModalScreen):
         table.can_focus = False
         table.add_column("name", key="name")
         table.add_column("meta", key="meta")
-        self.query_one("#ns-preview").border_title = "PREVIEW"
+        self.query_one("#new-body").set_class(self._claude_panel, "-claude")
         self.query_one("#ns-prompt", TextArea).border_title = "FIRST PROMPT  (Enter: new line)"
         self._show_prompt_line()
         field = self.query_one("#ns-dir", Input)
@@ -397,7 +402,7 @@ class NewSession(ModalScreen):
         self._apply_size(self.size.width)
 
     @staticmethod
-    def _hints(prompt_mode: bool = False) -> Text:
+    def _hints(prompt_mode: bool = False, claude: bool = False) -> Text:
         """Two lines, like a two-level footer. Each group has its own shade:
         amber keys change options, blue keys move around, green starts, red leaves.
 
@@ -407,7 +412,7 @@ class NewSession(ModalScreen):
             return f" {key} ", f"bold #101010 on {colour}"
 
         options = (("^a", "Model", AMBER), ("^s", "Mode", AMBER), ("^d", "Worktree", AMBER), ("^b", "Open now", AMBER), ("^e", "Start", GREEN))
-        moving = ((("^f", "Folders", BLUE),) if prompt_mode else (("tab", "Open folder", BLUE), ("^f", "Prompt", BLUE))) + (("esc", "Cancel", RED),)
+        moving = ((("^f", "Folders", BLUE),) if prompt_mode else (("tab", "Open folder", BLUE), ("^f", "Prompt", BLUE), ("^t", "Files" if claude else "Claude", BLUE))) + (("esc", "Cancel", RED),)
         t = Text(no_wrap=True, overflow="ellipsis")
         for i, (caption, colour, keys) in enumerate((("options", AMBER, options), ("navigate", BLUE, moving))):
             t.append(f" {caption:<9}", style=colour)
@@ -424,6 +429,8 @@ class NewSession(ModalScreen):
 
     def _apply_size(self, width: int) -> None:
         self.query_one("#new-body").set_class(width < 100, "-narrow")
+        self.query_one("#new-body").set_class(self.size.height < 28, "-short")     # no room for the gap under the prompt line
+        self.call_after_refresh(self._show_claude)        # the height of the panel may be new
 
     # ----------------------------------------------------------------- list
 
@@ -447,6 +454,19 @@ class NewSession(ModalScreen):
 
     def _show_preview(self) -> None:
         row = self._current()
+        panel = self.query_one("#ns-preview", Static)
+        panel.border_title = "Files · CLAUDE (^t)" if self._claude_panel else "FILES · Claude (^t)"
+        panel.border_subtitle = "from files, may be incomplete" if self._claude_panel else ""
+        if self._panel_timer is not None:
+            self._panel_timer.stop()
+            self._panel_timer = None
+        if row and self._claude_panel:
+            if row.path in self._found:
+                self._show_claude()
+            else:
+                panel.update(Text("reading…", style="grey50"))
+                self._panel_timer = self.set_timer(PANEL_DELAY_S, lambda: self._read_claude(row.path))
+            return
         t = Text()
         if row:
             for style, line in picker.preview(row.path, self._recents):
@@ -454,6 +474,58 @@ class NewSession(ModalScreen):
         else:
             t.append("nothing matches", style="grey50")
         self.query_one("#ns-preview", Static).update(t)
+
+    @work(thread=True, exclusive=True, group="claude-panel")
+    def _read_claude(self, path: str) -> None:
+        """Reads files only, in a thread: a slow disk must not stop the dialog."""
+        try:
+            found = entities.read(path)
+        except Exception:  # noqa: BLE001  (undocumented files: whatever they hold, the dialog stays usable)
+            found = entities.Entities(also=["these files cannot be read"])
+        self.app.call_from_thread(self._claude_ready, path, found)
+
+    def _claude_ready(self, path: str, found: "entities.Entities") -> None:
+        if not self.is_attached:
+            return                                        # the dialog was closed meanwhile
+        self._found[path] = found
+        row = self._current()
+        if row and row.path == path and self._claude_panel:
+            self._show_claude()
+
+    def _show_claude(self) -> None:
+        """Every text here comes from files of the folder: Text cells only, never markup."""
+        row = self._current()
+        found = self._found.get(row.path) if row else None
+        if not found or not self._claude_panel:
+            return
+        panel = self.query_one("#ns-preview", Static)
+        room = panel.content_size.height
+        t = Text(no_wrap=True, overflow="ellipsis")
+        for style, source, name, note in entities.lines(found, room or 24):
+            line = Text()
+            if style in ("item", "off"):
+                line.append(f"{source} ", style=GREEN if source in ("P", "L") else BLUE)
+                label = Text(name)
+                label.truncate(16, overflow="ellipsis", pad=True)
+                label.stylize("grey50" if style == "off" else "")
+                line.append_text(label)
+                line.append(f" {note}", style="grey62")
+            else:
+                line.append(name, style="bold " + AMBER if style == "head" else "grey58")
+            line.truncate(panel.content_size.width or 40, overflow="ellipsis")      # one line each: Static would wrap it
+            t.append_text(line)
+            t.append("\n")
+        panel.update(t)
+
+    def action_panel(self) -> None:
+        """Ctrl+T: the side panel shows the files, or the skills, plugins and MCP servers. Remembered."""
+        self._claude_panel = not self._claude_panel
+        self.query_one("#new-body").set_class(self._claude_panel, "-claude")
+        self.query_one("#ns-hints", Static).update(self._hints(self._prompt_mode, self._claude_panel))
+        self._show_preview()
+        remember = getattr(self.app, "remember_panel", None)
+        if remember:
+            remember(self._claude_panel)
 
     @on(Input.Changed, "#ns-dir")
     def _changed(self, event: Input.Changed) -> None:
@@ -469,7 +541,7 @@ class NewSession(ModalScreen):
 
     def check_action(self, action: str, parameters) -> Optional[bool]:
         # In the prompt editor the arrows, Tab and → belong to the text, not to the folder list.
-        if self._prompt_mode and action in ("move", "descend", "descend_right"):
+        if self._prompt_mode and action in ("move", "descend", "descend_right", "panel"):
             return False
         # → opens a folder only when the text cursor is at the end. Otherwise it moves the cursor as usual.
         if action == "descend_right":
@@ -554,7 +626,7 @@ class NewSession(ModalScreen):
         """Ctrl+F: the prompt editor takes the whole folder area, and again to go back to the folders."""
         self._prompt_mode = not self._prompt_mode
         self.query_one("#new-body").set_class(self._prompt_mode, "-prompt")
-        self.query_one("#ns-hints", Static).update(self._hints(self._prompt_mode))
+        self.query_one("#ns-hints", Static).update(self._hints(self._prompt_mode, self._claude_panel))
         self.query_one("#new-body").border_subtitle = "ctrl+e: start" if self._prompt_mode else "enter: start in the marked folder"
         (self.query_one("#ns-prompt", TextArea) if self._prompt_mode else self.query_one("#ns-dir", Input)).focus()
         self._show_prompt_line()
@@ -638,13 +710,17 @@ class FarmApp(App):
     #new-body Input, #mp-body Input { border: none; height: 1; padding: 0 1; background: $panel; margin-bottom: 1; }
     #ns-main { height: 1fr; }
     #ns-prompt { display: none; height: 1fr; border: round $primary; border-title-color: $text; background: $surface; }
-    #ns-prompt-line { height: 1; background: $panel; }
+    #ns-prompt-line { height: 1; margin-bottom: 1; background: $panel; }
     #new-body.-prompt #ns-main { display: none; }
+    #new-body.-short #ns-prompt-line { margin-bottom: 0; }
     #new-body.-prompt #ns-prompt-line { display: none; }
     #new-body.-prompt #ns-prompt { display: block; }
     #ns-list { width: 1fr; height: 1fr; border: round $primary 40%; border-title-color: $text; background: $surface; }
     #ns-preview { width: 45%; height: 1fr; border: round $secondary 40%; border-title-color: $text; padding: 0 1; }
+    #new-body.-claude #ns-preview { width: 60%; }
     #new-body.-narrow #ns-preview { display: none; }
+    #new-body.-narrow.-claude #ns-preview { display: block; width: 1fr; }
+    #new-body.-narrow.-claude #ns-list { display: none; }
     #ns-opts { height: 1; background: $panel; }
     #ns-error, #ns-warn, #ns-info { height: auto; }
     #ns-hints { height: 2; background: $panel; }
@@ -1213,7 +1289,11 @@ class FarmApp(App):
         if self._new_opts is None:
             self._new_opts = self._load_new_opts(cfg)
         extra = [m for m in (cfg.get("models") or []) if isinstance(m, str)]
-        self.push_screen(NewSession(cwd, list(self.snap.agents) if self.snap else [], self._new_opts, extra), self._start_session)
+        self.push_screen(NewSession(cwd, list(self.snap.agents) if self.snap else [], self._new_opts, extra,
+                                    settings.load_state(self._state_path()).get("claude_panel") is True), self._start_session)
+
+    def remember_panel(self, claude: bool) -> None:
+        settings.save_state({"claude_panel": claude}, self._state_path())
 
     def _start_session(self, choice) -> None:
         if not choice:

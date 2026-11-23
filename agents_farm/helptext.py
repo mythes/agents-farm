@@ -9,7 +9,7 @@ from .model import Status
 # (key, what it does), in groups. The keys of the selected session come first, like in the footer.
 KEY_GROUPS: List[Tuple[str, List[Tuple[str, str]]]] = [
     ("Sessions (a key in grey in the footer does not fit the selected session: press it to see why)", [
-        ("n", "new session: pick a folder, then ctrl+a model, ctrl+s mode, ctrl+d worktree, ctrl+b open now / stay here, ctrl+f first prompt, ctrl+e start"),
+        ("n", "new session: pick a folder, then ctrl+a model, ctrl+s mode, ctrl+d worktree, ctrl+b open now / stay here, ctrl+f first prompt, ctrl+t files / Claude, ctrl+e start"),
         ("a", "open a background session here (Ctrl+Z leaves it running)"),
         ("r", "continue a session that has ended (the same session and history)"),
         ("f", "fork a session: a new session with the same history (also for one that runs)"),

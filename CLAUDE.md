@@ -23,6 +23,7 @@ scripts/make_demo.sh                # rebuild the feature demos in docs/demo/ (o
 | `runner.py` | start, open, resume and stop sessions with Claude Code's own commands (`--bg`, `attach`, `stop`, `--resume`); Ctrl+Z handling. No Textual imports |
 | `capabilities.py` | what each key can do for the selected session and why not (greyed keys + pop-up text), and the commands for `y`. No Textual imports |
 | `picker.py` | folders (fuzzy, recent) and models for the new-session dialog. No Textual imports |
+| `entities.py` | skills, plugins and MCP servers of a folder, for the new-session dialog (reads files only, never shows secrets). No Textual imports |
 | `search.py` | fuzzy search and `key:value` filters (`textual.fuzzy`) |
 | `events.py` | hook handler (`agents-farm hook`) and reader for `events.jsonl` |
 | `store.py` | builds a `Snapshot`, works out each agent status (order: pid-file status, then hooks, then a guess from the transcript) |

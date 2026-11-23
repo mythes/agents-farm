@@ -25,7 +25,7 @@ ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
 OUT_DIR = os.path.join(ROOT, "docs", "demo")
 
 ESC, ENTER, TAB = b"\x1b", b"\r", b"\t"
-CTRL_A, CTRL_B, CTRL_D, CTRL_E, CTRL_F, CTRL_S = b"\x01", b"\x02", b"\x04", b"\x05", b"\x06", b"\x13"
+CTRL_A, CTRL_B, CTRL_D, CTRL_E, CTRL_F, CTRL_S, CTRL_T = b"\x01", b"\x02", b"\x04", b"\x05", b"\x06", b"\x13", b"\x14"
 
 
 def typed(text, gap=0.1):
@@ -54,7 +54,7 @@ SCENARIOS = {
 
     # The new-session dialog: folders, model, mode, a multi-line first prompt.
     "new-session": (110, 32,
-                    find("apir") + [(1.2, b"n")] + typed("te") + [(1.6, TAB), (1.6, CTRL_A)] + typed("so") + [(1.2, ENTER), (1.0, CTRL_S), (1.2, CTRL_F)]
+                    find("apir") + [(1.2, b"n"), (1.6, CTRL_T), (2.6, CTRL_T)] + typed("te") + [(1.6, TAB), (1.6, CTRL_A)] + typed("so") + [(1.2, ENTER), (1.0, CTRL_S), (1.2, CTRL_F)]
                     + typed("fix it", 0.06) + [(0.4, ENTER)] + typed("lint", 0.06) + [(1.4, CTRL_F), (2.0, ESC)] + clear()),
 
     # "Open now" or "stay here", and how to come back from a session (Ctrl+Z).

@@ -136,6 +136,7 @@ def main(argv=None) -> None:
 
         if args.demo:
             def run(store, home):
+                os.environ.pop("CLAUDE_CONFIG_DIR", None)
                 os.environ["HOME"] = home                 # so paths show as ~/projects/... and nothing real is shown
                 FarmApp(store, interval=args.interval, notify_enabled=bool(store.cfg.get("notify", True))).run()
 

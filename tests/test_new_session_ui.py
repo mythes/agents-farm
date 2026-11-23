@@ -283,3 +283,14 @@ def test_enter_starts_claude_with_the_choices_and_selects_the_new_session(tmp_pa
     run(scenario, store)
     assert seen == [(str(work / "proj"), ["--model", "my-model", "--permission-mode", "plan", "--verbose", "-w"], claude, "1")]
     assert opened == [(str(work / "proj"), ["attach", "bbbbbbbb"], True)]
+
+
+@pytest.mark.parametrize("size, gap", [((110, 32), 1), ((80, 24), 0)])
+def test_a_gap_separates_the_prompt_line_from_the_options(no_run, size, gap):
+    async def scenario(app, pilot):
+        await pilot.press("n")
+        await pilot.pause(0.3)
+        line, opts = (app.screen.query_one(i).region for i in ("#ns-prompt-line", "#ns-opts"))
+        assert opts.y - line.bottom == gap                      # a short terminal keeps the row for the folder list
+
+    run(scenario, size=size)

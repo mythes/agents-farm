@@ -24,7 +24,7 @@ A live list with a status symbol: `?` waits for you, `!` error, `●` running, `
 ### 3. Start a session
 ![new session](docs/demo/new-session.gif)
 
-`n` opens a folder browser: type letters to filter folders (fuzzy), `Tab` opens a folder, a preview shows its content and git branch. `Ctrl+A` picks the model, `Ctrl+S` the permission mode (`default`, `acceptEdits`, `auto`, `plan`), `Ctrl+D` a git worktree. `Ctrl+F` opens a multi-line first prompt, `Ctrl+E` starts. The dialog remembers your last choices, also after a restart.
+`n` opens a folder browser: type letters to filter folders (fuzzy), `Tab` opens a folder, a preview shows its content and git branch. `Ctrl+A` picks the model, `Ctrl+S` the permission mode (`default`, `acceptEdits`, `auto`, `plan`), `Ctrl+D` a git worktree. `Ctrl+T` switches the side panel between the files and what Claude finds there: skills, plugins and MCP servers. `Ctrl+F` opens a multi-line first prompt, `Ctrl+E` starts. The dialog remembers your last choices, also after a restart.
 
 ### 4. Leave a session and come back
 ![background](docs/demo/background.gif)
@@ -91,7 +91,7 @@ The script does not edit your shell config or `~/.claude/settings.json`. `--unin
 Install without a clone (read the script first: [scripts/install.sh](scripts/install.sh)):
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/mythes/agents-farm/main/scripts/install.sh | bash -s -- --ref v0.7.0
+curl -fsSL https://raw.githubusercontent.com/mythes/agents-farm/main/scripts/install.sh | bash -s -- --ref v0.8.0
 ```
 
 > **Why `af`?** It is short, and at the time of writing it is free in Homebrew, PyPI and Debian. Two old tools use the same name: an npm package (the AppFog CLI) and a Rust crate (an HTTP fetch tool). If you installed one of them, or you have `alias af=…`, the script will notice and keep your command. The short name is only a link made on your machine, so the package itself does not claim `af` for everyone.

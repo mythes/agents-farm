@@ -137,6 +137,27 @@ def down(base):
     return killed
 
 
+def write_entities(p):
+    """Made-up skills and MCP servers, for the Claude panel of the new-session dialog."""
+    def put(text, *path):
+        os.makedirs(os.path.dirname(os.path.join(*path)), exist_ok=True)
+        with open(os.path.join(*path), "w") as fh:
+            fh.write(text)
+
+    project, user = os.path.join(p["work"], "api-refactor"), os.path.join(p["home"], ".claude")
+    for root, name, about in ((project, "check", "Run the tests before a commit"), (project, "release", "Publish a new version"),
+                              (None, "docs-style", "Write plain English")):
+        put(f"---\nname: {name}\ndescription: {about}\n---\n", os.path.join(root, ".claude") if root else user, "skills", name, "SKILL.md")
+    put("# Notes\n", project, "CLAUDE.md")
+    put("Review a change\n", project, ".claude", "agents", "reviewer.md")
+    put(json.dumps({"mcpServers": {"github": {"command": "npx"}, "tracker": {"type": "http", "url": "https://mcp.example.com/"}}}), project, ".mcp.json")
+    plugin = os.path.join(user, "plugins", "cache", "example", "review-kit", "1.0.0")
+    put(json.dumps({"name": "review-kit", "description": "Helpers for reviews"}), plugin, ".claude-plugin", "plugin.json")
+    put("---\nname: review\n---\n", plugin, "skills", "review", "SKILL.md")
+    put(json.dumps({"plugins": {"review-kit@example": [{"scope": "user", "installPath": plugin}]}}), user, "plugins", "installed_plugins.json")
+    put(json.dumps({"enabledPlugins": {"review-kit@example": True}}), user, "settings.json")
+
+
 def up(base=None):
     """Build the playground. With no folder given a new temporary one is made."""
     base = base or tempfile.mkdtemp(prefix="agents-farm-demo-")
@@ -152,6 +173,7 @@ def up(base=None):
         fh.write("ref: refs/heads/feature/api-v2\n")
     for sub in ("src", "tests", "docs"):
         os.makedirs(os.path.join(p["work"], "api-refactor", sub), exist_ok=True)
+    write_entities(p)
     wrapper = os.path.join(base, "claude")                     # a program called `claude` that runs the fake one
     with open(wrapper, "w") as fh:
         fh.write(f"#!/bin/sh\nPYTHONPATH={shlex.quote(ROOT)}${{PYTHONPATH:+:$PYTHONPATH}} exec {shlex.quote(sys.executable)} -m agents_farm.fake_claude \"$@\"\n")

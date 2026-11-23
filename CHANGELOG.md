@@ -4,6 +4,16 @@ All notable changes are listed here. The format follows [Keep a Changelog](https
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-11-23
+
+The new-session dialog shows what Claude finds in a folder.
+
+### Added
+- New-session dialog: `Ctrl+T` switches the side panel between the files and the skills, plugins and MCP servers that Claude finds for the folder. Only files are read, and `env`, arguments and full addresses of MCP servers are never shown. The choice is remembered.
+
+### Changed
+- New-session dialog: a gap separates the first prompt from the options (not in a short terminal).
+
 ## [0.7.0] - 2026-11-23
 
 A period filter, and a fix for subagents that looked stalled.
