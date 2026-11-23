@@ -17,6 +17,7 @@ from .registry import LiveSession, Registry
 from .transcripts import TranscriptReader, project_from_dir
 
 DISCOVER_EVERY_S = 10
+KEEP_HOURS = 7 * 24        # transcripts read for a longer period stay in memory at most this long
 ENDED_AFTER_S = 60        # no process and no new output for this long: the session has ended
 LIVE_STATES = ('idle', 'busy', 'waiting')   # the values of `status` in the pid files that we act on
 
@@ -37,6 +38,7 @@ class Store:
         self.registry = Registry(sessions_dir)
         self.cfg = cfg or load_config()
         self.since = timedelta(hours=float(since_hours or self.cfg["since_hours"]))
+        self.since_fixed = since_hours is not None      # asked for by the caller (--since): a remembered period does not replace it
         self.readers: Dict[str, TranscriptReader] = {}
         self.events = EventReader()
         self._last_discover: Optional[float] = None
@@ -44,8 +46,18 @@ class Store:
 
     # ---------------------------------------------------------------- discovery
 
-    def _discover(self) -> None:
-        cutoff = time.time() - self.since.total_seconds()
+    def set_since(self, hours: float) -> None:
+        """Change the period. The next refresh looks for transcripts at once."""
+        self.since = timedelta(hours=float(hours))
+        self._last_discover = None                       # after `since`: a search that runs now is repeated
+
+    def _discover(self, live: Dict[str, LiveSession], since: timedelta) -> None:
+        # The limits need two usage windows, also when the list shows a shorter period.
+        read = max(since, timedelta(hours=2 * float(self.cfg.get("window_hours", 5)))).total_seconds()
+        cutoff = time.time() - read
+        keep = time.time() - max(read, KEEP_HOURS * 3600)
+        for path in [p for p in self.readers if not self._newer(p, keep) and self._session_of(p) not in live]:
+            del self.readers[path]
         patterns = [
             os.path.join(self.root, "*", "*.jsonl"),
             os.path.join(self.root, "*", "*", "subagents", "*.jsonl"),
@@ -54,17 +66,27 @@ class Store:
             for path in glob.glob(pattern):
                 if path in self.readers:
                     continue
-                try:
-                    if os.path.getmtime(path) < cutoff:
-                        continue
-                except OSError:
-                    continue
-                self._add(path)
+                # A running session is read at any age (its old subagents are not).
+                is_live = os.path.splitext(os.path.basename(path))[0] in live
+                if is_live or self._newer(path, cutoff):
+                    self._add(path)
         # Sessions that hooks report but that we haven't picked up yet.
         for st in self.events.latest.values():
             p = st.transcript_path
-            if p and p not in self.readers and self._inside_root(p):
+            if p and p not in self.readers and self._inside_root(p) and self._newer(p, cutoff):
                 self._add(p)
+
+    @staticmethod
+    def _newer(path: str, cutoff: float) -> bool:
+        try:
+            return os.path.getmtime(path) >= cutoff
+        except OSError:
+            return False
+
+    def _session_of(self, path: str) -> Optional[str]:
+        """The session id of a top-level transcript (None for a subagent)."""
+        agent = self.readers[path].agent
+        return None if agent.parent else agent.id
 
     def _inside_root(self, path: str) -> bool:
         # A hook event is untrusted input: never open files outside ~/.claude/projects.
@@ -95,16 +117,20 @@ class Store:
 
     def refresh(self) -> Snapshot:
         self.events.poll()
+        live = self.registry.scan()
+        since = self.since                               # one value for the whole refresh: the UI thread may change it
         if self._last_discover is None or time.monotonic() - self._last_discover > DISCOVER_EVERY_S:
-            self._discover()
-            self._last_discover = time.monotonic()
+            self._last_discover = time.monotonic()       # before the search: set_since() may ask for another one meanwhile
+            since = self.since
+            self._discover(live, since)
         for reader in self.readers.values():
             reader.poll()
 
         now = utcnow()
-        live = self.registry.scan()
         registry_on = self.registry.available
         agents: List[Agent] = []
+        candidates: List[Agent] = []
+        shown = set()
         usage = []
         for reader in self.readers.values():
             usage.extend(reader.usage)
@@ -112,10 +138,16 @@ class Store:
             if a.last_activity is None:
                 continue
             self._attach_live(a, live.get(a.session_id) if not a.parent else None, registry_on and not a.parent)
-            self._derive(a, now)
-            if a.last_activity < now - self.since:
-                continue
-            agents.append(self._copy(a))
+            a.parent_live = a.parent in live if a.parent and registry_on else None
+            candidates.append(a)
+            if a.live or a.last_activity >= now - since:         # a running session is listed at any age
+                shown.add(a.id)
+                if a.parent:
+                    shown.add(a.parent)                          # a subagent is listed under its parent
+        for a in candidates:
+            if a.id in shown:
+                self._derive(a, now)
+                agents.append(self._copy(a))
 
         # A running session that has no transcript yet (a new background session waits for its
         # first prompt) is still listed: the pid file is enough to show it.
@@ -129,6 +161,7 @@ class Store:
 
         limits = compute_limits(usage, self.cfg, now)
         return Snapshot(
+            since_hours=since.total_seconds() / 3600,
             source=self.source,
             agents=agents,
             limits=limits,
@@ -212,6 +245,8 @@ class Store:
             else:
                 st = Status.STALLED
                 note = "tool pending for a while — maybe waiting for permission (install hooks to know for sure)"
+        elif a.last_kind == "handback":
+            st = Status.DONE
         elif a.last_kind == "assistant" and a.stop_reason in ("end_turn", "stop_sequence", "max_tokens", "refusal"):
             st = Status.DONE
         elif a.last_kind == "user":
@@ -235,7 +270,9 @@ class Store:
         # interrupted or closed. "Running", "thinking", "stalled" and "waiting" are only guesses from the transcript
         # and would be wrong here, so it is just an ended session (hidden until you press h). A session that is
         # still writing (age < ENDED_AFTER_S) may be running without a pid file, so it keeps the guess.
-        if a.live is False and not a.parent and age >= ENDED_AFTER_S and st in (Status.RUNNING, Status.THINKING, Status.STALLED, Status.WAITING):
+        # A subagent has no process of its own: it ends with the process of its parent.
+        gone = (a.parent_live if a.parent else a.live) is False
+        if gone and age >= ENDED_AFTER_S and st in (Status.RUNNING, Status.THINKING, Status.STALLED, Status.WAITING):
             st, note = Status.IDLE, "ended: its process is not running"
         if st == Status.DONE and not a.from_pid_file and age > float(cfg["done_visible_min"]) * 60:
             st = Status.IDLE

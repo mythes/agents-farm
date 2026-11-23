@@ -42,7 +42,7 @@ The footer shows a key in grey when it does not fit the selected session. If you
 
 `r` and `f` also say no for a session with no history yet, a session whose folder is gone, and (for `r`) a session whose state we cannot tell (an older Claude Code with no process files).
 
-Other keys (`n` new, `/` search, `z` zoom, `e` `h` `o` `?` `q`) work always. `Ctrl+R` refreshes (the list also refreshes every 2 seconds).
+Other keys (`n` new, `/` search, `z` zoom, `e` `h` `t` `o` `?` `q`) work always. `Ctrl+R` refreshes (the list also refreshes every 2 seconds).
 
 ## 3. Starting a session (`n`)
 

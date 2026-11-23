@@ -343,6 +343,19 @@ def limits_line(limits: List[LimitInfo], now: datetime, width: int, warn: float,
     return t
 
 
+def period_label(hours: float) -> str:
+    """24 -> 24h, 72 -> 3d."""
+    return f"{hours / 24:g}d" if hours > 24 and hours % 24 == 0 else f"{hours:g}h"
+
+
+def list_title(snap: Snapshot, rows: int, period: Optional[float] = None) -> str:
+    """The title of the list. `period` is a choice that may still be loading (shown with …). No text from outside."""
+    shown = period or snap.since_hours
+    if not shown:
+        return f"AGENTS ({rows})"
+    return f"AGENTS ({rows}) · last {period_label(shown)} (t)" + (" …" if shown != snap.since_hours else "")
+
+
 def top_bar(snap: Snapshot, shown: int, hidden_idle: int) -> Text:
     counts = {}
     for a in snap.agents:

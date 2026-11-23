@@ -44,9 +44,9 @@ def clear():
 # name -> (columns, rows, steps). A step is (seconds to wait before sending, bytes to send).
 # The data is the demo playground (agents_farm/playground.py): made-up sessions and a fake claude.
 SCENARIOS = {
-    # The list (with the SRC column), the details, the zoom and the idle sessions.
+    # The list (with the SRC column), the details, the zoom, the idle sessions and the period (t).
     "overview": (100, 26,
-                 [(2.0, b""), (1.1, b"j"), (0.9, b"j"), (0.9, b"j"), (1.6, b"z"), (1.8, ESC), (1.0, b"h"), (2.0, b"")]),
+                 [(2.0, b""), (1.1, b"j"), (0.9, b"j"), (0.9, b"j"), (1.6, b"z"), (1.8, ESC), (1.0, b"h"), (2.0, b""), (1.0, b"t"), (2.6, b"t"), (2.6, b"t"), (2.0, b"")]),
 
     # Fuzzy search and the status: filter.
     "search": (100, 26,

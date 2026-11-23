@@ -32,7 +32,7 @@ DEFAULTS = {
     # window is bumped up automatically, so the bar can never pass 100%.
     "context_window": {"default": 200_000, "opus-5": 1_000_000, "sonnet-5": 1_000_000},
     # Only show sessions touched within this many hours.
-    "since_hours": 12,
+    "since_hours": 24,
     "stalled_after_s": 90,
     # A session the pid file calls "busy" is normal for a long time (builds, tests).
     # Only after this many seconds without any new output is it shown as stalled.

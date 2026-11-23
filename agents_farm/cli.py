@@ -111,7 +111,7 @@ def main(argv=None) -> None:
     parser = argparse.ArgumentParser(prog="agents-farm", description="Terminal dashboard for Claude Code agents")
     parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     parser.add_argument("--demo", action="store_true", help="try it on made-up sessions and a fake claude")
-    parser.add_argument("--since", type=float, default=None, help="show sessions active in the last N hours (default 12)")
+    parser.add_argument("--since", type=float, default=None, help="show sessions active in the last N hours (default 24)")
     parser.add_argument("--interval", type=float, default=2.0, help="refresh interval, seconds")
     sub = parser.add_subparsers(dest="cmd")
     st = sub.add_parser("status", help="one-shot summary")

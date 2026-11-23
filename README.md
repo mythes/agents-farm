@@ -14,7 +14,7 @@ Each feature has a short demo. The exact rules are on one page: **[docs/rules.md
 ### 1. See every agent
 ![overview](docs/demo/overview.gif)
 
-A live list with a status symbol: `?` waits for you, `!` error, `●` running, `⏸` stalled, `✓` done. The **SRC** column says where a session was started: `B` background, `T` terminal, `D` Claude Desktop, `S` SDK (a star, `B*`, means this agents-farm started it). Agents that need you are on top, subagents show under their parent. Open the details (context, activity, plan) with `z`, see usage and reset time per model at the bottom, and get an alert when an agent starts to wait for you. Idle and ended sessions are hidden until `h`.
+A live list with a status symbol: `?` waits for you, `!` error, `●` running, `⏸` stalled, `✓` done. The **SRC** column says where a session was started: `B` background, `T` terminal, `D` Claude Desktop, `S` SDK (a star, `B*`, means this agents-farm started it). Agents that need you are on top, subagents show under their parent. Open the details (context, activity, plan) with `z`, see usage and reset time per model at the bottom, and get an alert when an agent starts to wait for you. Idle and ended sessions are hidden until `h`. `t` changes the period: the last 24 hours, 3 days or 7 days.
 
 ### 2. Find one fast
 ![search](docs/demo/search.gif)
@@ -91,7 +91,7 @@ The script does not edit your shell config or `~/.claude/settings.json`. `--unin
 Install without a clone (read the script first: [scripts/install.sh](scripts/install.sh)):
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/mythes/agents-farm/main/scripts/install.sh | bash -s -- --ref v0.6.2
+curl -fsSL https://raw.githubusercontent.com/mythes/agents-farm/main/scripts/install.sh | bash -s -- --ref v0.7.0
 ```
 
 > **Why `af`?** It is short, and at the time of writing it is free in Homebrew, PyPI and Debian. Two old tools use the same name: an npm package (the AppFog CLI) and a Rust crate (an HTTP fetch tool). If you installed one of them, or you have `alias af=…`, the script will notice and keep your command. The short name is only a link made on your machine, so the package itself does not claim `af` for everyone.
@@ -105,7 +105,7 @@ After the install, `af` and `agents-farm` are the same command.
 ```bash
 agents-farm             # your real sessions from ~/.claude/projects
 agents-farm --demo      # made-up sessions and a fake claude, good for a first look
-agents-farm --since 24  # show sessions from the last 24 hours (default: 12)
+agents-farm --since 72  # show sessions from the last 72 hours (default: 24)
 ```
 
 Try every state without any real session:
@@ -140,6 +140,7 @@ A key that does not fit the selected session is grey in the footer; see [rules, 
 | `1` `2` `3` / `e` | Open or close Context / Activity / Plan, or all sections |
 | `/` | Search: letters (fuzzy) and filters (`status:waiting`, `model:opus`, `project:api`) |
 | `h` | Show or hide idle sessions (including ended ones) and finished subagents |
+| `t` | Period: the last 24 hours, 3 days or 7 days. It is remembered, and then used instead of `since_hours`; `--since` wins for one run. Running sessions are always listed |
 | `o` | Open the full log in `$PAGER` |
 | `Ctrl+R` | Refresh now |
 | `?` / `q` | Help / quit |
@@ -181,7 +182,7 @@ All keys are optional. The file is `~/.agents-farm/config.json`:
   "count_cache_read": false,
   "warn": 0.7,
   "crit": 0.9,
-  "since_hours": 12,
+  "since_hours": 24,
   "notify": true,
   "busy_stalled_s": 600,
   "allow_kill": true,

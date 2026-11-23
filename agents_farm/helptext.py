@@ -22,6 +22,7 @@ KEY_GROUPS: List[Tuple[str, List[Tuple[str, str]]]] = [
         ("1 2 3 / e", "open or close Context / Activity / Plan, or all of them"),
         ("/", "search: letters (apirf finds api-refactor), and filters: status:waiting model:opus project:api"),
         ("h", "show or hide idle sessions (also the ones that have ended) and finished subagents"),
+        ("t", "period: sessions of the last 24 hours, 3 days or 7 days. Running sessions are always listed"),
         ("o", "open the full log of the session in $PAGER"),
     ]),
     ("Other", [

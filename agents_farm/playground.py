@@ -33,7 +33,8 @@ FOLDERS = ("api-refactor", "docs-writer", "deploy-check", "lint-pass", "perf-aud
            "old-spike", "untrusted-app")
 TITLES = {"docs-writer": "docs-writer", "api-refactor": "api-refactor", "test-fixer": "test-fixer", "perf-audit": "perf-audit",
           "lint-pass": "lint-pass", "deploy-check": "deploy-check", "bg-migrations": "migrations", "other-terminal": "review-pr",
-          "ended-spike": "old-spike", "ended-desktop": "release-notes", "ended-gone": "rename-keys", "interrupted": "failing-ci"}
+          "ended-spike": "old-spike", "ended-desktop": "release-notes", "ended-gone": "rename-keys", "interrupted": "failing-ci",
+          "ended-old": "cache-study"}
 GONE = "removed-project"                      # a session whose folder no longer exists (it is not created)
 
 
@@ -77,6 +78,7 @@ SESSIONS = [
     ("ended-desktop", "docs-writer", "Draft the release notes", 600, "end", "sonnet", "claude-desktop", None),
     ("ended-gone", GONE, "Rename the config keys", 720, "end", "haiku", "cli", None),
     ("interrupted", "api-refactor", "Look at the failing CI", 3600, "user", "sonnet", "cli", None),
+    ("ended-old", "perf-audit", "Compare the two caching libraries", 2 * 86400, "end", "opus", "cli", None),     # in the 3-day period
 ]
 
 
@@ -193,7 +195,7 @@ def make_store(base, notify=True):
     p = paths(base)
     cfg = dict(DEFAULTS, claude_bin=os.path.join(base, "claude"), notify=notify, state_path=os.path.join(p["af"], "state.json"),
                claude_env={"CLAUDE_PROJECTS_DIR": p["projects"], "CLAUDE_SESSIONS_DIR": p["sessions"], "HOME": p["home"]})
-    store = Store(root=p["projects"], since_hours=12, cfg=cfg, sessions_dir=p["sessions"])
+    store = Store(root=p["projects"], since_hours=24, cfg=cfg, sessions_dir=p["sessions"])
     store.source = "playground"
     return store
 

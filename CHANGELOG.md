@@ -4,6 +4,23 @@ All notable changes are listed here. The format follows [Keep a Changelog](https
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-11-23
+
+A period filter, and a fix for subagents that looked stalled.
+
+### Added
+- `t` changes the period of the list: the last 24 hours, 3 days or 7 days. The choice is remembered.
+
+### Changed
+- When the selected session leaves the list, the cursor moves to the nearest one, not to the top.
+- The default period is 24 hours (it was 12).
+- A running session is listed at any age, and the parent of a listed subagent too.
+- The limits use the same data for every period. Transcripts that nobody shows any more are freed after 7 days.
+
+### Fixed
+- A subagent that gave its result back (`SubagentHandback`) is shown as done. Before, it looked like it was thinking, and then stalled, for up to 6 hours.
+- A subagent that did not finish is shown as ended when the process of its parent session is gone.
+
 ## [0.6.2] - 2026-11-20
 
 A memory leak fix. Please update: in 0.6.0 and 0.6.1 a dashboard left open grew to about 1 GB of RAM and used a lot of CPU in a day.

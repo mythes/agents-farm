@@ -126,7 +126,7 @@ class Agent:
     first_prompt: str = ""
     started: Optional[datetime] = None
     last_activity: Optional[datetime] = None
-    last_kind: str = ""  # user | assistant | error
+    last_kind: str = ""  # user | assistant | error | handback (a subagent gave its result to the parent)
     stop_reason: Optional[str] = None
     pending_tools: int = 0
     error_note: Optional[str] = None
@@ -145,6 +145,7 @@ class Agent:
     # from the live process registry (registry.py)
     live: Optional[bool] = None      # None = unknown (no registry), True/False = process running or not
     pid: Optional[int] = None
+    parent_live: Optional[bool] = None   # the same for the parent session of a subagent
     entrypoint: str = ""
     live_status: str = ""
     from_pid_file: bool = False      # no transcript yet: built from the pid file alone
@@ -196,5 +197,6 @@ class Snapshot:
     hooks_active: bool
     warn: float = 0.7
     crit: float = 0.9
+    since_hours: Optional[float] = None   # the period that this list covers
     source: str = "claude-code"
     live_status: bool = False        # True if any agent's status comes from a pid file

@@ -15,6 +15,7 @@ from .tail import Tail
 
 READ_TOOLS = {"Read", "NotebookRead"}
 EDIT_TOOLS = {"Edit", "Write", "MultiEdit", "NotebookEdit"}
+HANDBACK_TOOL = "SubagentHandback"    # a subagent ends with this call: no "end_turn" follows its result
 PLAN_TOOLS = {"TodoWrite", "mcp__ccd_turn__update_plan"}
 
 
@@ -130,6 +131,7 @@ class TranscriptReader:
         if kind == "user":
             if d.get("isMeta"):
                 return
+            handed_back = False
             if isinstance(content, str):
                 self._prompt(content, ts)
             elif isinstance(content, list):
@@ -142,9 +144,11 @@ class TranscriptReader:
                             a.activity.append(
                                 ActivityItem(ts, name or "tool", first_line(_result_text(block)) or "error", True)
                             )
+                        elif name == HANDBACK_TOOL:
+                            handed_back = True
                     elif block.get("type") == "text":
                         self._prompt(block.get("text", ""), ts)
-            a.last_kind = "user"
+            a.last_kind = "handback" if handed_back and a.parent else "user"
             a.error_note = None
             return
 

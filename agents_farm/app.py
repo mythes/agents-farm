@@ -7,6 +7,7 @@ import shlex
 import signal
 import subprocess  # nosec B404
 import tempfile
+import threading
 import time
 from typing import Dict, List, Optional, Set, Tuple
 
@@ -19,6 +20,7 @@ from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.screen import ModalScreen
+from textual.worker import get_current_worker
 from textual.widgets import Collapsible, DataTable, Footer, Input, Static, TextArea
 
 from .model import STATUS_ORDER, Agent, Snapshot, Status
@@ -28,6 +30,8 @@ from . import config as settings
 from . import render as R
 from .search import Query
 
+PERIODS = (24, 72, 168)   # hours, the steps of the t key
+PERIOD_DELAY_S = 0.3      # several quick presses of t load only the last period
 NARROW_WIDTH = 112   # below this width we show one panel (list or details)
 
 # Shades used in the new-session dialog.
@@ -677,6 +681,7 @@ class FarmApp(App):
         Binding("3", "toggle_section(2)", "Plan", show=False),
         Binding("e", "expand_all", "Expand"),
         Binding("h", "toggle_idle", "Idle"),
+        Binding("t", "cycle_period", "Period", show=False),      # the title of the list shows this key
         Binding("o", "open_log", "Log"),
         Binding("ctrl+r", "refresh_now", "Refresh", show=False),
         Binding("question_mark", "help", "Help"),
@@ -707,6 +712,11 @@ class FarmApp(App):
         self._mine: Set[str] = set()                # session ids (or the first characters) that this agents-farm started
         self._pick_sid: Optional[str] = None        # or the id (first 8 characters) of the session we expect
         self._pick_until = 0.0                      # give up selecting a new session after this time
+        self._refresh_lock = threading.Lock()
+        self._period: Optional[float] = None        # the period chosen with t, until a snapshot has it
+        self._period_timer = None
+        self._alert_period: Optional[float] = None  # the period of the last snapshot that was checked for alerts
+        self._load_period()
         self._windows = getattr(store, "cfg", {}).get("context_window")
 
     # ------------------------------------------------------------------ layout
@@ -759,8 +769,14 @@ class FarmApp(App):
 
     @work(thread=True, exclusive=True, group="refresh")
     def refresh_data(self) -> None:
-        snap = self.store.refresh()
-        self.call_from_thread(self._apply_snapshot, snap)
+        # `exclusive` does not stop a thread that already runs, and a long first read can take more than one interval:
+        # the lock keeps two threads from changing the same readers, and snapshots arrive in order.
+        worker = get_current_worker()
+        with self._refresh_lock:
+            if worker.is_cancelled:
+                return                                # a newer refresh waits for the lock
+            snap = self.store.refresh()
+            self.call_from_thread(self._apply_snapshot, snap)
 
     def _screen_ready(self) -> bool:
         """False while the app is closing: timers and the data worker can still fire once."""
@@ -770,6 +786,8 @@ class FarmApp(App):
         if not self._screen_ready():
             return
         self._alert_transitions(snap)
+        if self._period == snap.since_hours and self._period_timer is None:
+            self._period = None
         self.snap = snap
         if self._pick_new is not None:
             # The new session may not be in the first snapshot (its pid file or transcript comes a moment after
@@ -803,9 +821,13 @@ class FarmApp(App):
             self._spinning = False
 
     def _alert_transitions(self, snap: Snapshot) -> None:
+        switched = snap.since_hours != self._alert_period
+        self._alert_period = snap.since_hours
         if not self._first and self.notify_enabled:
             for a in snap.agents:
                 prev = self._prev_status.get(a.id)
+                if switched and prev is None and not a.live:
+                    continue                          # it only came into view with the new period: no news
                 if prev != a.status and a.status in (Status.WAITING, Status.ERROR):
                     sev = "warning" if a.status == Status.WAITING else "error"
                     msg = a.status_note or a.status.value
@@ -887,7 +909,7 @@ class FarmApp(App):
         now = self.snap.updated
         warn, crit = self.snap.warn, self.snap.crit
         if keys != self.row_keys:
-            selected = self.selected_id
+            selected = self._stay_near(keys)
             table.clear()
             for a in rows:
                 table.add_row(*R.row_cells(a, now, self.frame, warn, crit, self._windows, self._hl.get(a.id), self._is_mine(a)), key=a.id)
@@ -902,9 +924,18 @@ class FarmApp(App):
                 for col, cell in zip(self.col_keys, R.row_cells(a, now, self.frame, warn, crit, self._windows, self._hl.get(a.id), self._is_mine(a))):
                     table.update_cell(a.id, col, cell)
         left = self.query_one("#left")
-        left.border_title = f"AGENTS ({len(rows)})"
+        left.border_title = R.list_title(self.snap, len(rows), self._period)
         left.border_subtitle = escape(f"search: {self.filter_text}") if self.filter_text else ""
         self.query_one("#topbar", Static).update(R.top_bar(self.snap, len(rows), hidden))
+
+    def _stay_near(self, keys: List[str]) -> Optional[str]:
+        """The row to select in the new list: the same session, or the nearest one when it is gone.
+        A search starts at its best match (the first row)."""
+        old, rows = self.selected_id, self.row_keys
+        if old in keys or old not in rows or self._query.active:
+            return old
+        left, at = set(keys), rows.index(old)
+        return next((k for k in rows[at + 1:] + rows[:at][::-1] if k in left), None)
 
     def _selected(self) -> Optional[Agent]:
         if not self.snap or not self.selected_id:
@@ -1024,6 +1055,34 @@ class FarmApp(App):
         self.notify("showing idle sessions" if self.show_idle else "idle sessions hidden", timeout=2)
         if self.snap:
             self._render_table()
+
+    # ----------------------------------------------------------------- period
+
+    def _load_period(self) -> None:
+        """Use the period of the last run, unless the caller asked for one (--since)."""
+        if getattr(self.store, "since_fixed", True):
+            return
+        saved = settings.load_state(self._state_path()).get("since_hours")
+        if isinstance(saved, int) and saved in PERIODS:
+            self.store.set_since(saved)
+
+    def action_cycle_period(self) -> None:
+        if not self.snap or not hasattr(self.store, "set_since"):
+            return
+        now = self._period or self.snap.since_hours or 0
+        self._period = next((p for p in PERIODS if p > now), PERIODS[0])
+        if self._period_timer is not None:
+            self._period_timer.stop()
+        self._period_timer = self.set_timer(PERIOD_DELAY_S, self._use_period)
+        self._render_table()                              # the title shows the choice at once
+
+    def _use_period(self) -> None:
+        self._period_timer = None
+        if self._period is None:
+            return
+        self.store.set_since(self._period)
+        settings.save_state({"since_hours": self._period}, self._state_path())
+        self.refresh_data()
 
     # ------------------------------------------------- what the selected session allows
 
